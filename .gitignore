@@ -94,3 +94,10 @@ slideglance/*.vsix
 
 hana.*
 generative-ui-demo
+
+# ohmyppt slide-pack 平台二进制（构建时下载，不提交 git）
+services/ohmyppt/resources/slide-pack-*
+services/ohmyppt/output/
+
+# 事件日志
+events.jsonl
