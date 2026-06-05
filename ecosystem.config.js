@@ -23,7 +23,7 @@ module.exports = {
     {
       name: 'zwhnlab-ohmyppt',
       script: 'dist/index.js',
-      cwd: path.join(__dirname, 'services/ohmyppt'),
+      cwd: path.join("/data", 'ohmyppt'),
       interpreter: 'node',
       instances: 1,
       exec_mode: 'fork',

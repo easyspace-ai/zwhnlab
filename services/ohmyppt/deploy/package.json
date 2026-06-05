@@ -1,0 +1,11 @@
+{
+  "name": "@osinttools/ohmyppt-service",
+  "version": "0.3.0",
+  "type": "module",
+  "imports": {
+    "@shared/*": "./src/shared/*",
+    "electron": "./src/adapters/electron-stub.ts",
+    "electron-log/main.js": "./src/adapters/electron-log-stub.ts",
+    "@electron-toolkit/utils": "./src/adapters/electron-toolkit-stub.ts"
+  }
+}
