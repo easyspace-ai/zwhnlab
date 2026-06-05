@@ -105,3 +105,4 @@ events.jsonl
 # ohmyppt 本地构建产物
 services/ohmyppt/dist/
 services/ohmyppt/deploy/
+services/ohmyppt/ohmyppt-deploy.tar.gz
