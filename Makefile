@@ -7,7 +7,7 @@ FRONTEND := $(ROOT)/frontend
 SERVER_BIN := $(BIN)/server
 STATIC_INDEX := $(BIN)/static/index.html
 
-.PHONY: all frontend backend check-static clean clean-all
+.PHONY: all frontend backend check-static clean clean-all deploy-ohmyppt
 
 all: check-static backend
 
@@ -28,3 +28,8 @@ clean:
 
 clean-all: clean
 	rm -rf "$(BIN)/static"
+
+# ohmyppt — 本地 esbuild 打包 → deploy/ohmyppt-deploy.tar.gz
+# 服务器部署：scp 到服务器解压 → pm2 restart zwhnlab-ohmyppt
+deploy-ohmyppt:
+	cd "$(ROOT)/services/ohmyppt" && node scripts/pack.mjs

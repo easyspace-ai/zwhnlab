@@ -101,3 +101,7 @@ services/ohmyppt/output/
 
 # 事件日志
 events.jsonl
+
+# ohmyppt 本地构建产物
+services/ohmyppt/dist/
+services/ohmyppt/deploy/
