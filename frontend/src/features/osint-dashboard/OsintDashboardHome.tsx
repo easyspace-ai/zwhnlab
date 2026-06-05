@@ -175,7 +175,7 @@ export default function OsintDashboardHome() {
   const rightCollapsed = shellChrome?.rightCollapsed ?? false
   const setRightCollapsed = shellChrome?.setRightCollapsed
 
-  const chat = useOsintDashboardChat(userId)
+  const chat = useOsintDashboardChat(userId, intelligenceSkills)
   const w6Stream = useSubAgentStream(chat.sessionId, chat.w6StreamEnabled, chat.w6StreamRound)
 
   const [skillGroups, setSkillGroups] = useState<SkillGroupLite[]>([])
@@ -189,6 +189,10 @@ export default function OsintDashboardHome() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const w6DoneHandledRef = useRef(0)
   const sessionBootstrapRef = useRef(false)
+
+  useEffect(() => {
+    w6DoneHandledRef.current = 0
+  }, [chat.w6StreamRound])
   const [sessionsReady, setSessionsReady] = useState(false)
 
   useEffect(() => {
@@ -514,7 +518,7 @@ export default function OsintDashboardHome() {
 
   const handlePendingSkillSubmit = (formData: Record<string, unknown>) => {
     if (!pendingSkill) return
-    if (isW6SkillKey(pendingSkill.key)) {
+    if (isW6SkillKey(pendingSkill.key, intelligenceSkills)) {
       void handleW6Submit(formData)
     } else {
       void handleSkillSubmit(formData)

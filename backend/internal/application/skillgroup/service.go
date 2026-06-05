@@ -2,6 +2,8 @@ package skillgroup
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,14 +36,69 @@ type Repository interface {
 
 // Service 技能组管理应用服务
 type Service struct {
-	repo Repository
+	repo        Repository
+	defaultsDir string
 }
 
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo Repository, defaultsDir string) *Service {
+	return &Service{repo: repo, defaultsDir: strings.TrimSpace(defaultsDir)}
 }
 
-// EnsureDefaultGroups 从 defaults/custom 子目录创建/补齐默认技能组
+// IsBuiltinGroupID is true when the group id matches a folder under data/skills/defaults/.
+func (s *Service) IsBuiltinGroupID(groupID string) bool {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" || s.defaultsDir == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(s.defaultsDir, groupID))
+	return err == nil && info.IsDir()
+}
+
+// SkillUsesW6Runner is true when the skill is listed in any managed skill group.
+func (s *Service) SkillUsesW6Runner(skillKey string) bool {
+	skillKey = strings.TrimSpace(skillKey)
+	if skillKey == "" {
+		return false
+	}
+	groups, err := s.repo.ListAll()
+	if err != nil {
+		return false
+	}
+	for _, g := range groups {
+		for _, k := range g.SkillIDs {
+			if strings.TrimSpace(k) == skillKey {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// W6RunnerSkillKeys returns all skill keys assigned to skill groups.
+func (s *Service) W6RunnerSkillKeys() map[string]struct{} {
+	keys := make(map[string]struct{})
+	groups, err := s.repo.ListAll()
+	if err != nil {
+		return keys
+	}
+	for _, g := range groups {
+		for _, k := range g.SkillIDs {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				keys[k] = struct{}{}
+			}
+		}
+	}
+	return keys
+}
+
+// GroupUsesW6Runner is true for every managed skill group (skills submit via @w6).
+func (s *Service) GroupUsesW6Runner(_ string) bool {
+	return true
+}
+
+// EnsureDefaultGroups 从磁盘上实际存在的 defaults/custom 子目录创建/补齐技能组。
+// 已删除且目录不存在的默认组不会重建；用户自建分组保留在 DB 中。
 func (s *Service) EnsureDefaultGroups(defaultsDir, customDir string) error {
 	expected, err := LoadMergedGroupsFromDirs(defaultsDir, customDir)
 	if err != nil {

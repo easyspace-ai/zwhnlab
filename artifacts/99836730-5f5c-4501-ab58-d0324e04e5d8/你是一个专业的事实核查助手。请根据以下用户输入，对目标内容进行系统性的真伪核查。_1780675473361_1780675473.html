@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="magazine">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>事实核查报告：日本百年老店与匠心文化</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Noto+Sans+SC:wght@400;500;700&amp;family=Noto+Serif+SC:wght@500;600;700;900&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&amp;display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --ink: #0a0a0b;
+  --ink-rgb: 10, 10, 11;
+  --paper: #f1efea;
+  --paper-rgb: 241, 239, 234;
+  --paper-tint: #e8e5de;
+  --accent: #0f4c5c;
+  --accent-soft: rgba(15, 76, 92, 0.12);
+  --verdict: #9a3412;
+  --verdict-bg: #fff7ed;
+  --evidence: #1e3a5f;
+  --evidence-bg: #f0f7ff;
+  --caveat: #7c2d12;
+  --caveat-bg: #fef2f2;
+  --action: #14532d;
+  --action-bg: #ecfdf5;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --serif: "Noto Serif SC", "Source Serif 4", Georgia, serif;
+  --sans: "Noto Sans SC", system-ui, sans-serif;
+  --max: 52rem;
+  --sidebar: 13.5rem;
+}
+html[data-theme="swiss"] {
+  --paper: #f7f7f5;
+  --accent: #002fa7;
+  --accent-soft: rgba(0, 47, 167, 0.1);
+}
+* { box-sizing: border-box; margin: 0; }
+html { scroll-behavior: smooth; }
+body.report-doc {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.72;
+  -webkit-font-smoothing: antialiased;
+}
+.report-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 50% at 10% 0%, rgba(15, 76, 92, 0.08), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(154, 52, 18, 0.06), transparent 50%),
+    linear-gradient(180deg, var(--paper) 0%, var(--paper-tint) 100%);
+}
+html[data-theme="swiss"] .report-bg {
+  background:
+    linear-gradient(90deg, transparent 49.5%, rgba(var(--ink-rgb), 0.04) 49.5%, rgba(var(--ink-rgb), 0.04) 50.5%, transparent 50.5%),
+    linear-gradient(0deg, transparent 49.5%, rgba(var(--ink-rgb), 0.04) 49.5%, rgba(var(--ink-rgb), 0.04) 50.5%, transparent 50.5%),
+    var(--paper);
+  background-size: 24px 24px, 24px 24px, auto;
+}
+.report-layout {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: var(--sidebar) minmax(0, 1fr);
+  gap: 0;
+  max-width: calc(var(--max) + var(--sidebar) + 4rem);
+  margin: 0 auto;
+  min-height: 100vh;
+}
+.report-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 2rem 1rem 2rem 1.5rem;
+  border-right: 1px solid rgba(var(--ink-rgb), 0.08);
+}
+.report-toc__label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-bottom: 0.75rem;
+}
+.report-toc__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.report-toc__item { margin-bottom: 0.35rem; }
+.report-toc__item--sub { padding-left: 0.75rem; opacity: 0.85; }
+.report-toc__item a {
+  font-size: 0.78rem;
+  color: var(--ink);
+  text-decoration: none;
+  line-height: 1.4;
+  display: block;
+  padding: 0.2rem 0;
+  border-left: 2px solid transparent;
+  padding-left: 0.5rem;
+  transition: border-color 0.15s, opacity 0.15s;
+}
+.report-toc__item a:hover {
+  border-left-color: var(--accent);
+  opacity: 0.9;
+}
+.report-main {
+  padding: 2.5rem clamp(1.25rem, 4vw, 3rem) 4rem;
+  max-width: calc(var(--max) + 2rem);
+}
+.report-hero {
+  margin-bottom: 2.5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.12);
+}
+.report-hero__chrome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+.report-hero__tag {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid rgba(var(--ink-rgb), 0.25);
+}
+.report-hero__date {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+.report-hero__title {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: clamp(1.75rem, 4vw, 2.65rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.report-hero__topic {
+  margin-top: 0.75rem;
+  font-size: 0.95rem;
+  opacity: 0.75;
+}
+.report-hero__note {
+  margin-top: 1rem;
+  font-size: 0.78rem;
+  color: rgba(var(--ink-rgb), 0.55);
+  font-family: var(--mono);
+}
+.report-body { animation: reportIn 0.7s ease; }
+@keyframes reportIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.report-section {
+  margin-bottom: 2rem;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.report-section__inner {
+  padding: 1.5rem clamp(1rem, 3vw, 2rem);
+}
+.report-section--lead .report-section__inner {
+  padding-top: 0;
+  font-size: 1.05rem;
+  opacity: 0.92;
+}
+.report-section--verdict {
+  background: var(--verdict-bg);
+  border: 1px solid rgba(154, 52, 18, 0.2);
+  box-shadow: 0 12px 40px rgba(154, 52, 18, 0.06);
+}
+.report-section--verdict h2 {
+  color: var(--verdict);
+}
+.report-section--evidence {
+  background: var(--evidence-bg);
+  border-left: 4px solid var(--evidence);
+}
+.report-section--summary {
+  background: rgba(var(--ink-rgb), 0.03);
+  border: 1px dashed rgba(var(--ink-rgb), 0.15);
+}
+.report-section--timeline {
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+}
+.report-section--action {
+  background: var(--action-bg);
+  border: 1px solid rgba(20, 83, 45, 0.15);
+}
+.report-section--caveat {
+  background: var(--caveat-bg);
+  border: 1px solid rgba(124, 45, 18, 0.18);
+}
+.report-section--data table {
+  font-variant-numeric: tabular-nums;
+}
+.report-section--default .report-section__inner {
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+.report-body h1 {
+  font-family: var(--serif);
+  font-size: 1.85rem;
+  margin: 0 0 1rem;
+  display: none;
+}
+.report-body h2 {
+  font-family: var(--serif);
+  font-size: 1.45rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+  line-height: 1.25;
+  scroll-margin-top: 1.5rem;
+}
+.report-body h3 {
+  font-family: var(--serif);
+  font-size: 1.15rem;
+  margin: 1.25rem 0 0.6rem;
+  scroll-margin-top: 1.5rem;
+}
+.report-body h4, .report-body h5, .report-body h6 {
+  font-size: 1rem;
+  margin: 1rem 0 0.5rem;
+}
+.report-body p {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+.report-body ul, .report-body ol {
+  margin: 0 0 1.25rem;
+  padding-left: 1.35rem;
+}
+.report-body li { margin-bottom: 0.4rem; }
+.report-body li::marker { color: var(--accent); }
+.report-body blockquote {
+  margin: 1.25rem 0;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid var(--accent);
+  background: rgba(var(--ink-rgb), 0.04);
+  font-family: var(--serif);
+  font-size: 1.02rem;
+  line-height: 1.6;
+}
+.report-body blockquote p:last-child { margin-bottom: 0; }
+.report-body strong { font-weight: 700; }
+.report-body em { font-style: italic; }
+.report-body code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: rgba(var(--ink-rgb), 0.06);
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+}
+.report-body pre {
+  margin: 1rem 0;
+  padding: 1rem;
+  overflow-x: auto;
+  background: rgba(var(--ink-rgb), 0.06);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.report-body pre code { background: none; padding: 0; }
+.report-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  font-size: 0.92rem;
+}
+.report-body th, .report-body td {
+  border: 1px solid rgba(var(--ink-rgb), 0.12);
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+}
+.report-body th {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(var(--ink-rgb), 0.05);
+}
+.report-body hr {
+  border: none;
+  height: 1px;
+  background: rgba(var(--ink-rgb), 0.12);
+  margin: 2rem 0;
+}
+.report-body a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.report-body .footnote-ref {
+  line-height: 0;
+}
+.report-body .footnote-ref .cite-link {
+  font-family: var(--mono);
+  font-size: 0.72em;
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--accent);
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+.report-body .footnote-ref .cite-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+.report-references {
+  margin-top: 2.5rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid rgba(var(--ink-rgb), 0.14);
+  scroll-margin-top: 1.5rem;
+}
+.report-references h2 {
+  font-family: var(--serif);
+  font-size: 1.25rem;
+  margin: 0 0 1rem;
+}
+.footnote-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.footnote-item {
+  margin: 0 0 0.85rem;
+  padding-left: 0;
+  font-size: 0.92rem;
+  line-height: 1.65;
+  scroll-margin-top: 1.5rem;
+}
+.footnote-item p {
+  display: inline;
+  margin: 0;
+}
+.footnote-label {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  font-weight: 500;
+  color: rgba(var(--ink-rgb), 0.65);
+  margin-right: 0.35rem;
+}
+.report-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 1rem 0;
+}
+.report-foot {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(var(--ink-rgb), 0.1);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+@media (max-width: 900px) {
+  .report-layout { grid-template-columns: 1fr; }
+  .report-sidebar {
+    position: relative;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid rgba(var(--ink-rgb), 0.08);
+    padding: 1rem 1.25rem;
+  }
+  .report-toc__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.75rem;
+  }
+  .report-toc__item--sub { padding-left: 0; }
+  .report-toc__item a {
+    font-size: 0.72rem;
+    border: 1px solid rgba(var(--ink-rgb), 0.12);
+    border-radius: 99px;
+    padding: 0.25rem 0.65rem;
+    border-left-width: 1px;
+  }
+}
+</style>
+</head>
+<body class="report-doc">
+<div class="report-bg" aria-hidden="true"></div>
+<div class="report-layout">
+  <aside class="report-sidebar"><nav class="report-toc" aria-label="报告目录"><p class="report-toc__label">目录</p><ol class="report-toc__list"><li class="report-toc__item"><a href="#heading-1">一、核查结论</a></li><li class="report-toc__item"><a href="#heading-2">二、关键证据</a></li><li class="report-toc__item"><a href="#heading-3">三、分析过程</a></li><li class="report-toc__item"><a href="#heading-4">四、建议</a></li><li class="report-toc__item"><a href="#references">参考来源</a></li></ol></nav></aside>
+  <main class="report-main">
+    <header class="report-hero">
+      <div class="report-hero__chrome">
+        <span class="report-hero__tag">OSINT · Fact Check</span>
+        <time class="report-hero__date" datetime="2026-06-06T00:04:33">生成于 2026年6月6日 00:04</time>
+      </div>
+      <h1 class="report-hero__title">事实核查报告：日本百年老店与匠心文化</h1>
+      <p class="report-hero__topic">核查对象 · 日本有很多有匠心的艺人，他们有很多的百年老店</p>
+      <p class="report-hero__note">以下内容与 W6 调研 Markdown 原文一致，仅做排版与阅读结构优化。</p>
+    </header>
+    <article class="report-body"><section class="report-section report-section--lead"><div class="report-section__inner"><h1 id="heading">事实核查报告：日本百年老店与匠心文化</h1></div></section><section class="report-section report-section--verdict"><div class="report-section__inner"><h2 id="heading-1">一、核查结论</h2>
+<p><strong>真实</strong>。日本是全球百年老店数量最多的国家，拥有数以万计的百年以上企业（shinise），其商业文化以长期主义、传统守护和匠心精神为核心特征。</p>
+</div></section><section class="report-section report-section--evidence"><div class="report-section__inner"><h2 id="heading-2">二、关键证据</h2>
+<ul>
+<li>日本拥有超过33,000家经营百年以上的企业（shinise），其中3,100家超过200年，140家超过500年，至少19家声称经营超过1,000年<sup class="footnote-ref"><a href="#ref-wiki_shinise" class="cite-link">[^wiki_shinise]</a></sup>。另有研究指出，百年以上企业可能多达52,000家，其中1,938家超过500年<sup class="footnote-ref"><a href="#ref-ceo_shinise" class="cite-link">[^ceo_shinise]</a></sup>。</li>
+<li>2008年韩国银行的一项国际研究发现，全球41个国家中5,586家超过200年的企业里，56%位于日本<sup class="footnote-ref"><a href="#ref-bbc_shinise" class="cite-link">[^bbc_shinise]</a></sup><sup class="footnote-ref"><a href="#ref-ceo_shinise" class="cite-link">[^ceo_shinise]</a></sup>。</li>
+<li>日本百年企业被称为shinise（老舗），以家族经营、坚守核心业务、重视传统与社区为共同特征<sup class="footnote-ref"><a href="#ref-conversation_shinise" class="cite-link">[^conversation_shinise]</a></sup>。京都大学管理学院教授指出，日本企业强调可持续发展和代际传承，而非快速利润最大化<sup class="footnote-ref"><a href="#ref-bbc_shinise" class="cite-link">[^bbc_shinise]</a></sup>。</li>
+<li>日本现存的最古老企业包括金刚组（建筑，创立于578年）、庆云馆（温泉旅馆，创立于705年）、通园茶屋（茶屋，创立于1160年）等，均运营超过千年<sup class="footnote-ref"><a href="#ref-wiki_shinise" class="cite-link">[^wiki_shinise]</a></sup><sup class="footnote-ref"><a href="#ref-bbc_shinise" class="cite-link">[^bbc_shinise]</a></sup>。</li>
+<li>shinise企业被视为地方传统的守护者，通过坚持主业、维持品质和嵌入社区获得消费者的高度信任和忠诚<sup class="footnote-ref"><a href="#ref-conversation_shinise" class="cite-link">[^conversation_shinise]</a></sup>。</li>
+</ul>
+</div></section><section class="report-section report-section--default"><div class="report-section__inner"><h2 id="heading-3">三、分析过程</h2>
+<p>本次核查为快速核查（quick depth），检索了5个权威来源进行交叉验证。</p>
+<p><strong>检索路径</strong>：使用中英文关键词进行多语言并行搜索，深度阅读了BBC（2020年2月）、Wikipedia Shinise词条、The Conversation（学者研究，2019年6月）、The CEO Magazine（2023年11月，引用日本经济大学教授Toshio Goto数据）和Big Think共5个来源。Big Think网站未返回实质内容（仅显示导航框架），其余4个来源均提供了可靠信息。</p>
+<p><strong>交叉验证</strong>：各来源在日本百年企业数量的具体数字上存在差异（33,000 vs 52,000），这主要是统计口径不同所致——Teikoku Data Bank 2019年的数据为33,000家，而日本经济大学教授Toshio Goto的研究数据为52,000家。但核心结论高度一致：日本确实拥有全球最多的长寿企业，且这一现象与日本文化中重视传统、长期主义和匠心精神密切相关。韩国银行2008年56%的占比数据被多个独立来源一致引用，可信度高。</p>
+<p><strong>关于&quot;匠心艺人&quot;的关联</strong>：用户陈述中的&quot;有匠心的艺人&quot;（职人/匠人）与shinise文化直接相关。The Conversation的研究指出，shinise企业&quot;体现并复制社区价值观&quot;，是&quot;地方传统的守护者&quot;，被当地社区赋予极高的社会地位。BBC报道中提到通园茶屋（创立于1160年）现任第24代店主表示&quot;最重要的是让这份事业延续下去&quot;。这些均体现了日本传统商业文化中根深蒂固的匠人精神和代际传承理念。</p>
+</div></section><section class="report-section report-section--action"><div class="report-section__inner"><h2 id="heading-4">四、建议</h2>
+<p>如需进一步核实具体数据差异，可检索日本帝国数据银行（Teikoku Data Bank）原始报告和韩国银行2008年研究原文。但现有证据足以支持核查结论。</p>
+<section class="report-references" aria-label="参考文献"></div></section><section class="report-section report-section--evidence"><div class="report-section__inner"><h2 id="references">参考来源</h2><ol class="footnote-list"><li id="ref-wiki_shinise" class="footnote-item"><span class="footnote-label">[^wiki_shinise]</span> <p><a href="https://en.wikipedia.org/wiki/Shinise">Shinise - Wikipedia</a> - 词条详细列出shinise的数量统计及最早的企业列表。</p></li><li id="ref-bbc_shinise" class="footnote-item"><span class="footnote-label">[^bbc_shinise]</span> <p><a href="https://www.bbc.com/worklife/article/20200211-why-are-so-many-old-companies-in-japan">Why so many of the world's oldest companies are in Japan - BBC Worklife</a> - Bryan Lufkin, 2020-02-12. 引用帝国数据银行（Teikoku Data Bank）2019年数据及韩国银行2008年研究。</p></li><li id="ref-ceo_shinise" class="footnote-item"><span class="footnote-label">[^ceo_shinise]</span> <p><a href="https://www.theceomagazine.com/business/management-leadership/japan-oldest-businesses/">Why Japan is home to the world's oldest businesses - The CEO Magazine</a> - 2023-11-23. 引用日本经济大学教授Toshio Goto的52,000家百年企业数据及韩国银行56%研究结论。</p></li><li id="ref-conversation_shinise" class="footnote-item"><span class="footnote-label">[^conversation_shinise]</span> <p><a href="https://theconversation.com/how-to-build-a-business-that-lasts-more-than-200-years-lessons-from-japans-shinise-companies-116839">How to build a business that lasts more than 200 years: lessons from Japan's shinise companies - The Conversation</a> - 2019-06-06. 兰卡斯特大学学者对京都shinise企业的实地访谈研究。</p></li></ol></section></div></section></article>
+    <footer class="report-foot">
+      <span>事实核查报告 · 单页阅读版</span>
+      <span>排版参考电子杂志编辑风格</span>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

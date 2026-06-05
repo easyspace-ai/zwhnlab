@@ -1,13 +1,11 @@
-import { BUILTIN_INTELLIGENCE_SKILL_KEYS } from '@/osint/constants/builtinIntelligenceSkills'
 import type { IntelligenceSkill } from '@/osint/types'
-
-/** Default folder / skill group id under data/skills/defaults/ */
-export const INTELLIGENCE_ANALYST_GROUP_ID = 'intelligence_analyst'
 
 export type SkillGroupLite = {
   id: string
   name: string
   skill_ids: string[]
+  /** Managed skill groups run skills through @w6 on form submit. */
+  uses_w6?: boolean
 }
 
 /** Skills for toolbar pills: group order, enabled only. */
@@ -28,23 +26,16 @@ export function orderSkillsForGroup(
   }
 
   return enabledSkills
-    .filter((s) => BUILTIN_INTELLIGENCE_SKILL_KEYS.has(s.key))
+    .filter((s) => s.uses_w6)
     .sort((a, b) => a.sort_order - b.sort_order)
 }
 
-export function resolveIntelligenceAnalystGroup(
-  groups: SkillGroupLite[],
-): SkillGroupLite | null {
-  const fromApi = groups.find((g) => g.id === INTELLIGENCE_ANALYST_GROUP_ID)
-  if (fromApi) return fromApi
+/** Prefer the first skill group from API (all managed groups use @w6). */
+export function resolveBuiltinSkillGroup(groups: SkillGroupLite[]): SkillGroupLite | null {
+  return groups[0] ?? null
+}
 
-  if (groups.some((g) => g.name === '情报分析')) {
-    return groups.find((g) => g.name === '情报分析') ?? null
-  }
-
-  return {
-    id: INTELLIGENCE_ANALYST_GROUP_ID,
-    name: '情报分析',
-    skill_ids: [...BUILTIN_INTELLIGENCE_SKILL_KEYS],
-  }
+/** @deprecated Use resolveBuiltinSkillGroup */
+export function resolveIntelligenceAnalystGroup(groups: SkillGroupLite[]): SkillGroupLite | null {
+  return resolveBuiltinSkillGroup(groups)
 }

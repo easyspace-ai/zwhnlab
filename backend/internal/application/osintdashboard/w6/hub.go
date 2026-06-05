@@ -104,6 +104,9 @@ func (h *Hub) ClearRound(sessionID string) {
 	h.mu.Lock()
 	delete(h.history, sessionID)
 	h.mu.Unlock()
+	if h.persister != nil {
+		h.persister.ClearStreamHistory(sessionID)
+	}
 }
 
 func (h *Hub) History(sessionID string) []Event {

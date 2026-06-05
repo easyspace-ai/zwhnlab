@@ -28,6 +28,7 @@ export interface SkillGroupItem {
   description?: string;
   skill_ids: string[];
   role_id?: string;
+  uses_w6?: boolean;
   created_at: string;
 }
 

@@ -4,6 +4,7 @@ package w6
 type StreamPersister interface {
 	AppendStreamEvent(sessionID string, ev StreamPersistEvent)
 	StreamHistory(sessionID string) []StreamPersistEvent
+	ClearStreamHistory(sessionID string)
 }
 
 // SessionStateReader provides W6 upstream/topic state for a dashboard session.

@@ -12,9 +12,9 @@ import (
 
 // Default group folder names under data/skills/defaults/
 const (
-	GroupBusinessConsultant   = "business_consultant"
-	GroupIntelligenceAnalyst  = "intelligence_analyst"
-	GroupStockAnalyst         = "stock_analyst"
+	GroupBusinessConsultant  = "business_consultant"
+	GroupIntelligenceAnalyst = "intelligence_analyst"
+	GroupStockAnalyst        = "stock_analyst"
 )
 
 var defaultGroupDisplayNames = map[string]string{
@@ -33,12 +33,64 @@ func LoadDefaultGroupsFromDir(dir string) ([]*SkillGroup, error) {
 	return LoadMergedGroupsFromDirs(dir, "")
 }
 
-// LoadMergedGroupsFromDirs 合并 defaults 与 custom 各组下的技能 key 列表（custom 中新增技能会并入）
+// discoverSkillGroupIDs lists group folder names present under defaults/ and custom/.
+func discoverSkillGroupIDs(defaultsDir, customDir string) ([]string, error) {
+	seen := make(map[string]struct{})
+	var ids []string
+
+	for _, root := range []string{defaultsDir, customDir} {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read skills root %q: %w", root, err)
+		}
+		for _, ent := range entries {
+			if !ent.IsDir() {
+				continue
+			}
+			id := strings.TrimSpace(ent.Name())
+			if id == "" || strings.HasPrefix(id, ".") {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+
+	sort.Strings(ids)
+	return ids, nil
+}
+
+func displayNameForGroup(groupID string) string {
+	if name, ok := defaultGroupDisplayNames[groupID]; ok && name != "" {
+		return name
+	}
+	return groupID
+}
+
+// LoadMergedGroupsFromDirs discovers group folders on disk and merges defaults/custom skill keys.
 func LoadMergedGroupsFromDirs(defaultsDir, customDir string) ([]*SkillGroup, error) {
+	groupIDs, err := discoverSkillGroupIDs(defaultsDir, customDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(groupIDs) == 0 {
+		return nil, fmt.Errorf("no skill group directories found under %q", defaultsDir)
+	}
+
 	now := time.Now().UTC()
 	var groups []*SkillGroup
 
-	for groupID, displayName := range defaultGroupDisplayNames {
+	for _, groupID := range groupIDs {
 		defSub := filepath.Join(defaultsDir, groupID)
 		defKeys, err := skillKeysFromDir(defSub)
 		if err != nil {
@@ -51,26 +103,26 @@ func LoadMergedGroupsFromDirs(defaultsDir, customDir string) ([]*SkillGroup, err
 
 		if strings.TrimSpace(customDir) != "" {
 			customSub := filepath.Join(customDir, groupID)
-			if info, err := os.Stat(customSub); err == nil && info.IsDir() {
-				customKeys, err := skillKeysFromDir(customSub)
-				if err != nil {
-					return nil, err
-				}
-				for _, k := range customKeys {
-					keySet[k] = struct{}{}
-				}
+			customKeys, err := skillKeysFromDir(customSub)
+			if err != nil {
+				return nil, err
+			}
+			for _, k := range customKeys {
+				keySet[k] = struct{}{}
 			}
 		}
 
 		if len(keySet) == 0 {
-			return nil, fmt.Errorf("no skills in group %q", groupID)
+			continue
 		}
+
 		keys := make([]string, 0, len(keySet))
 		for k := range keySet {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 
+		displayName := displayNameForGroup(groupID)
 		groups = append(groups, &SkillGroup{
 			ID:          groupID,
 			Name:        displayName,
@@ -81,8 +133,8 @@ func LoadMergedGroupsFromDirs(defaultsDir, customDir string) ([]*SkillGroup, err
 		})
 	}
 
-	if len(groups) != len(defaultGroupDisplayNames) {
-		return nil, fmt.Errorf("expected %d default skill groups, got %d", len(defaultGroupDisplayNames), len(groups))
+	if len(groups) == 0 {
+		return nil, fmt.Errorf("no skill groups with skills found under %q", defaultsDir)
 	}
 
 	sort.Slice(groups, func(i, j int) bool {
@@ -94,6 +146,9 @@ func LoadMergedGroupsFromDirs(defaultsDir, customDir string) ([]*SkillGroup, err
 func skillKeysFromDir(dir string) ([]string, error) {
 	files, err := os.ReadDir(dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("read group dir %q: %w", dir, err)
 	}
 

@@ -362,16 +362,19 @@ type skillGroupResponse struct {
 	Description *string  `json:"description"`
 	SkillIDs    []string `json:"skill_ids"`
 	RoleID      *string  `json:"role_id"`
+	UsesW6      bool     `json:"uses_w6"`
 	CreatedAt   string   `json:"created_at"`
 }
 
-func toSkillGroupResponse(g *skillgroupsvc.SkillGroup) skillGroupResponse {
+func (h *AdminHandler) toSkillGroupResponse(g *skillgroupsvc.SkillGroup) skillGroupResponse {
+	usesW6 := h.skillGroupSvc != nil && h.skillGroupSvc.GroupUsesW6Runner(g.ID)
 	return skillGroupResponse{
 		ID:          g.ID,
 		Name:        g.Name,
 		Description: g.Description,
 		SkillIDs:    g.SkillIDs,
 		RoleID:      g.RoleID,
+		UsesW6:      usesW6,
 		CreatedAt:   g.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
@@ -384,7 +387,7 @@ func (h *AdminHandler) listSkillGroups(c *gin.Context) {
 	}
 	res := make([]skillGroupResponse, len(groups))
 	for i, g := range groups {
-		res[i] = toSkillGroupResponse(g)
+		res[i] = h.toSkillGroupResponse(g)
 	}
 	c.JSON(http.StatusOK, res)
 }
@@ -407,7 +410,7 @@ func (h *AdminHandler) createSkillGroup(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, toSkillGroupResponse(g))
+	c.JSON(http.StatusOK, h.toSkillGroupResponse(g))
 }
 
 func (h *AdminHandler) getSkillGroup(c *gin.Context) {
@@ -416,7 +419,7 @@ func (h *AdminHandler) getSkillGroup(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"detail": "skill group not found"})
 		return
 	}
-	c.JSON(http.StatusOK, toSkillGroupResponse(g))
+	c.JSON(http.StatusOK, h.toSkillGroupResponse(g))
 }
 
 func (h *AdminHandler) updateSkillGroup(c *gin.Context) {
@@ -430,7 +433,7 @@ func (h *AdminHandler) updateSkillGroup(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, toSkillGroupResponse(g))
+	c.JSON(http.StatusOK, h.toSkillGroupResponse(g))
 }
 
 func (h *AdminHandler) deleteSkillGroup(c *gin.Context) {

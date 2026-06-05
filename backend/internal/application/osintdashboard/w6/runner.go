@@ -76,6 +76,9 @@ func (r *Runner) Start(ctx context.Context, p StartParams) {
 	}
 	r.state.EnsureTopic(id, topic)
 	r.cancelRound(id)
+	// Clear replay buffer before the UI reconnects so stale terminal events are not replayed.
+	r.hub.ClearRound(id)
+	_ = r.state.SetSubAgentStatus(id, "running")
 	runCtx, cancel := context.WithCancel(context.Background())
 	r.setCancel(id, cancel)
 	go r.run(runCtx, id, p.Prompt, topic)

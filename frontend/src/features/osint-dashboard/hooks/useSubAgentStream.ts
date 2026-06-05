@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { osintDashboardW6StreamURL, stopW6Session } from '../lib/osintDashboardApi'
 import type { W6StreamEvent } from '../types'
 
@@ -61,6 +61,7 @@ export function useSubAgentStream(
   const esRef = useRef<EventSource | null>(null)
   const intentionalCloseRef = useRef(false)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const roundLiveRef = useRef(false)
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) {
@@ -73,6 +74,7 @@ export function useSubAgentStream(
     if (!sessionId || !enabled) return
     clearRetryTimer()
     intentionalCloseRef.current = false
+    roundLiveRef.current = false
     esRef.current?.close()
     setEvents([])
     setStatus('running')
@@ -88,7 +90,15 @@ export function useSubAgentStream(
     es.onmessage = (ev) => {
       try {
         const data = JSON.parse(ev.data) as W6StreamEvent
-        if (data.type === 'done' || data.type === 'stopped' || data.type === 'error') {
+        const isTerminal =
+          data.type === 'done' || data.type === 'stopped' || data.type === 'error'
+        if (isTerminal && !roundLiveRef.current) {
+          return
+        }
+        if (!isTerminal) {
+          roundLiveRef.current = true
+        }
+        if (isTerminal) {
           intentionalCloseRef.current = true
         }
         applyStreamEvent(data, setEvents, setProgress, setLastLine, setStatus, setConnection, es)
@@ -116,7 +126,7 @@ export function useSubAgentStream(
     }
   }, [sessionId, enabled, clearRetryTimer])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (enabled && sessionId) {
       connect()
     } else {

@@ -126,6 +126,16 @@ func (w *WorkflowStore) appendStreamSnap(sessionID string, ev StreamEventSnap) {
 	_ = w.save(sess, ws)
 }
 
+// ClearStreamHistory implements w6.StreamPersister.
+func (w *WorkflowStore) ClearStreamHistory(sessionID string) {
+	sess, ws, err := w.load(sessionID)
+	if err != nil || len(ws.StreamEvents) == 0 {
+		return
+	}
+	ws.StreamEvents = nil
+	_ = w.save(sess, ws)
+}
+
 // StreamHistory implements w6.StreamPersister.
 func (w *WorkflowStore) StreamHistory(sessionID string) []w6.StreamPersistEvent {
 	ws, err := w.Get(sessionID)

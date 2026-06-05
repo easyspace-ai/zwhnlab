@@ -165,7 +165,7 @@ func Wire(ctx context.Context, cfg *config.Config, db *persistence.DB) (*WireRes
 
 	// Skill group service (shared between admin and intelligence skills)
 	skillGroupRepo := persistence.NewSkillGroupRepository(db)
-	skillGroupSvc := skillgroupsvc.NewService(skillGroupRepo)
+	skillGroupSvc := skillgroupsvc.NewService(skillGroupRepo, cfg.SkillsDefaultsDir)
 
 	intelligenceSkillHandler := NewIntelligenceSkillHandler(intelligenceSkillSvc, skillGroupSvc, roleSvc)
 	intelligenceSkillsGroup := api.Group("/intelligence-skills")

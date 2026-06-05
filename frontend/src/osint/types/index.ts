@@ -84,6 +84,8 @@ export interface IntelligenceSkill {
   prompt_template: string
   is_enabled: boolean
   sort_order: number
+  /** Listed in a skill group → form submit runs through @w6 sub-agent. */
+  uses_w6?: boolean
   created_at: string
   updated_at: string
 }

@@ -108,6 +108,14 @@ func (s *Service) AllowedSkillKeys(userID string, isAdmin bool) (map[string]stru
 	return s.skillGroupSvc.SkillKeysForGroupIDs(groupIDs)
 }
 
+// SkillUsesW6Pipeline reports whether a skill should run through the W6 sub-agent canvas.
+func (s *Service) SkillUsesW6Pipeline(skillKey string) bool {
+	if s.skillGroupSvc != nil && s.skillGroupSvc.SkillUsesW6Runner(skillKey) {
+		return true
+	}
+	return IsW6FunctionKey(skillKey)
+}
+
 func (s *Service) ValidateSkillKey(userID string, isAdmin bool, skillKey string) (*domainintel.Skill, error) {
 	skillKey = strings.TrimSpace(skillKey)
 	if skillKey == "" {

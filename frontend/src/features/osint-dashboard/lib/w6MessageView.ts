@@ -72,10 +72,15 @@ export function mapW6ChipStatus(
   const hasError = events.some((e) => e.type === 'error')
 
   if (isLive) {
+    if (stored === 'running') {
+      if (live === 'error' || hasError) return 'error'
+      if (live === 'running') return 'running'
+      if (hasTerminal && live === 'idle') return 'done'
+      return 'running'
+    }
     if (live === 'running') return 'running'
     if (live === 'error' || hasError) return 'error'
     if (hasTerminal || stored === 'done' || stored === 'stopped') return 'done'
-    if (stored === 'running') return 'running'
     return 'idle'
   }
 

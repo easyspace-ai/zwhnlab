@@ -63,7 +63,7 @@ func (h *OsintDashboardHandler) chatStart(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "session_id and skill_key required"})
 		return
 	}
-	if !osintdashboard.IsW6FunctionKey(skillKey) {
+	if !h.svc.SkillUsesW6Pipeline(skillKey) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "skill does not use W6 pipeline"})
 		return
 	}
@@ -191,7 +191,7 @@ func (h *OsintDashboardHandler) chatRespond(c *gin.Context) {
 	if sess.SkillKey != nil {
 		skillKey = *sess.SkillKey
 	}
-	if skillKey == "" || !osintdashboard.IsW6FunctionKey(skillKey) {
+	if skillKey == "" || !h.svc.SkillUsesW6Pipeline(skillKey) {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "session has no W6 skill"})
 		return
 	}

@@ -1,4 +1,5 @@
 import type { FormField } from '@/osint/types'
+import type { IntelligenceSkill } from '@/osint/types'
 
 export interface FormSchema {
   fields: FormField[]
@@ -75,8 +76,15 @@ export interface W6StreamEvent {
   timestamp?: number
 }
 
-export const W6_SKILL_KEYS = new Set(['fact_check', 'info_research', 'data_collection'])
+/** Legacy fallback keys when API has not loaded uses_w6 yet. */
+const LEGACY_W6_SKILL_KEYS = new Set(['fact_check', 'info_research', 'data_collection'])
 
-export function isW6SkillKey(key: string | null | undefined): boolean {
-  return key != null && W6_SKILL_KEYS.has(key)
+export function isW6SkillKey(
+  key: string | null | undefined,
+  skills?: IntelligenceSkill[],
+): boolean {
+  if (!key) return false
+  const skill = skills?.find((s) => s.key === key)
+  if (skill?.uses_w6 != null) return skill.uses_w6
+  return LEGACY_W6_SKILL_KEYS.has(key)
 }

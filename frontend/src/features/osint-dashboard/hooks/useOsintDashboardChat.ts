@@ -7,6 +7,7 @@ import type {
   W6StreamEvent,
 } from '../types'
 import type { SubAgentStatus } from './useSubAgentStream'
+import type { IntelligenceSkill } from '@/osint/types'
 import { isW6SkillKey } from '../types'
 import {
   buildChatDiscussBody,
@@ -153,6 +154,7 @@ function applyPersisted(
     sessionIdRef: MutableRefObject<string | null>
     skillKeyRef: MutableRefObject<string | null>
   },
+  intelligenceSkills: IntelligenceSkill[],
 ) {
   setters.setMessages(saved.messages)
   setters.setReports(
@@ -171,13 +173,16 @@ function applyPersisted(
   if (saved.skillKey) {
     refs.skillKeyRef.current = saved.skillKey
     setters.setSkillKey(saved.skillKey)
-    if (isW6SkillKey(saved.skillKey) && saved.sessionId) {
+    if (isW6SkillKey(saved.skillKey, intelligenceSkills) && saved.sessionId) {
       setters.setW6StreamEnabled(true)
     }
   }
 }
 
-export function useOsintDashboardChat(userId: string | undefined) {
+export function useOsintDashboardChat(
+  userId: string | undefined,
+  intelligenceSkills: IntelligenceSkill[] = [],
+) {
   const [messages, setMessages] = useState<DashboardChatMessage[]>([])
   const [reports, setReports] = useState<DashboardReportItem[]>([])
   const [activeReportId, setActiveReportId] = useState<string | null>(null)
@@ -271,10 +276,7 @@ export function useOsintDashboardChat(userId: string | undefined) {
         w6Status = 'error'
       } else if (payload.events.some((e) => e.type === 'stopped')) {
         w6Status = 'stopped'
-      } else if (
-        payload.events.some((e) => e.type === 'done') ||
-        (payload.status === 'idle' && payload.events.length > 0)
-      ) {
+      } else if (payload.events.some((e) => e.type === 'done')) {
         w6Status = 'done'
       }
 
@@ -406,7 +408,7 @@ export function useOsintDashboardChat(userId: string | undefined) {
             const sid = String(event.sessionId)
             sessionIdRef.current = sid
             setSessionId(sid)
-            if (isW6SkillKey(skillKeyRef.current)) {
+            if (isW6SkillKey(skillKeyRef.current, intelligenceSkills)) {
               setW6StreamEnabled(true)
             }
           }
@@ -490,7 +492,7 @@ export function useOsintDashboardChat(userId: string | undefined) {
       setSkillKey(skillKey)
       sessionIdRef.current = sid
       setSessionId(sid)
-      if (!isW6SkillKey(skillKey)) {
+      if (!isW6SkillKey(skillKey, intelligenceSkills)) {
         setW6StreamEnabled(false)
       }
       setIsStreaming(true)
@@ -745,7 +747,7 @@ export function useOsintDashboardChat(userId: string | undefined) {
       skillKeyRef.current = resolvedSkillKey
       setSkillKey(resolvedSkillKey)
 
-      if (isW6SkillKey(resolvedSkillKey)) {
+      if (isW6SkillKey(resolvedSkillKey, intelligenceSkills)) {
         setW6StreamEnabled(true)
         if (server?.w6_stream_active || saved || serverMessages.length > 0) {
           setW6StreamRound((n) => n + 1)
@@ -767,6 +769,7 @@ export function useOsintDashboardChat(userId: string | undefined) {
             setSkillKey,
           },
           { sessionIdRef, skillKeyRef },
+          intelligenceSkills,
         )
         const runningW6 = [...saved.messages]
           .reverse()

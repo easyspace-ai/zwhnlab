@@ -69,7 +69,11 @@ func (h *IntelligenceSkillHandler) listSkills(c *gin.Context) {
 		return
 	}
 	list = intelligence.FilterSkillsByKeys(list, allowedKeys)
-	c.JSON(http.StatusOK, toIntelligenceSkillListResponse(list))
+	w6Keys := map[string]struct{}{}
+	if h.skillGroupSvc != nil {
+		w6Keys = h.skillGroupSvc.W6RunnerSkillKeys()
+	}
+	c.JSON(http.StatusOK, toIntelligenceSkillListResponse(list, w6Keys))
 }
 
 type createIntelligenceSkillRequest struct {
@@ -122,7 +126,7 @@ func (h *IntelligenceSkillHandler) createSkill(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": "failed to create intelligence skill"})
 		return
 	}
-	c.JSON(http.StatusCreated, toIntelligenceSkillResponse(skill))
+	c.JSON(http.StatusCreated, h.toSkillResponse(skill))
 }
 
 func (h *IntelligenceSkillHandler) getSkill(c *gin.Context) {
@@ -136,7 +140,7 @@ func (h *IntelligenceSkillHandler) getSkill(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"detail": "Intelligence skill not found"})
 		return
 	}
-	c.JSON(http.StatusOK, toIntelligenceSkillResponse(skill))
+	c.JSON(http.StatusOK, h.toSkillResponse(skill))
 }
 
 type updateIntelligenceSkillRequest struct {
@@ -192,7 +196,7 @@ func (h *IntelligenceSkillHandler) updateSkill(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"detail": "Intelligence skill not found"})
 		return
 	}
-	c.JSON(http.StatusOK, toIntelligenceSkillResponse(skill))
+	c.JSON(http.StatusOK, h.toSkillResponse(skill))
 }
 
 func (h *IntelligenceSkillHandler) deleteSkill(c *gin.Context) {
@@ -236,7 +240,7 @@ func (h *IntelligenceSkillHandler) restoreSkillToDefault(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"detail": "Intelligence skill not found"})
 		return
 	}
-	c.JSON(http.StatusOK, toIntelligenceSkillResponse(skill))
+	c.JSON(http.StatusOK, h.toSkillResponse(skill))
 }
 
 func (h *IntelligenceSkillHandler) executeSkill(c *gin.Context) {
@@ -300,20 +304,34 @@ func (h *IntelligenceSkillHandler) listSkillGroups(c *gin.Context) {
 
 	out := make([]gin.H, len(filtered))
 	for i, g := range filtered {
-		out[i] = gin.H{
-			"id":          g.ID,
-			"name":        g.Name,
-			"description": g.Description,
-			"skill_ids":   g.SkillIDs,
-			"role_id":     g.RoleID,
-			"created_at":  g.CreatedAt,
-			"updated_at":  g.UpdatedAt,
-		}
+		out[i] = h.toSkillGroupResponse(g)
 	}
 	c.JSON(http.StatusOK, out)
 }
 
-func toIntelligenceSkillResponse(s *domainintel.Skill) gin.H {
+func (h *IntelligenceSkillHandler) toSkillResponse(s *domainintel.Skill) gin.H {
+	usesW6 := false
+	if h.skillGroupSvc != nil {
+		usesW6 = h.skillGroupSvc.SkillUsesW6Runner(s.Key)
+	}
+	return toIntelligenceSkillResponse(s, usesW6)
+}
+
+func (h *IntelligenceSkillHandler) toSkillGroupResponse(g *skillgroupsvc.SkillGroup) gin.H {
+	usesW6 := h.skillGroupSvc != nil && h.skillGroupSvc.GroupUsesW6Runner(g.ID)
+	return gin.H{
+		"id":          g.ID,
+		"name":        g.Name,
+		"description": g.Description,
+		"skill_ids":   g.SkillIDs,
+		"role_id":     g.RoleID,
+		"uses_w6":     usesW6,
+		"created_at":  g.CreatedAt,
+		"updated_at":  g.UpdatedAt,
+	}
+}
+
+func toIntelligenceSkillResponse(s *domainintel.Skill, usesW6 bool) gin.H {
 	return gin.H{
 		"id":              s.ID,
 		"key":             s.Key,
@@ -324,15 +342,17 @@ func toIntelligenceSkillResponse(s *domainintel.Skill) gin.H {
 		"prompt_template": s.PromptTemplate,
 		"is_enabled":      s.IsEnabled,
 		"sort_order":      s.SortOrder,
+		"uses_w6":         usesW6,
 		"created_at":      s.CreatedAt,
 		"updated_at":      s.UpdatedAt,
 	}
 }
 
-func toIntelligenceSkillListResponse(list []*domainintel.Skill) []gin.H {
+func toIntelligenceSkillListResponse(list []*domainintel.Skill, w6Keys map[string]struct{}) []gin.H {
 	out := make([]gin.H, len(list))
 	for i, item := range list {
-		out[i] = toIntelligenceSkillResponse(item)
+		_, usesW6 := w6Keys[item.Key]
+		out[i] = toIntelligenceSkillResponse(item, usesW6)
 	}
 	return out
 }
