@@ -1,0 +1,42 @@
+{
+  "key": "authoring_reference",
+  "name": "模板编写参考（样例，勿上线）",
+  "description": "演示 form_schema 与 prompt_template 的 Handlebars if / eq 用法，仅供 Playground 加载样例。",
+  "icon": "Search",
+  "form_schema": {
+    "fields": [
+      {
+        "name": "topic",
+        "label": "主题",
+        "type": "textarea",
+        "required": true,
+        "placeholder": "输入调研主题"
+      },
+      {
+        "name": "purpose",
+        "label": "目的",
+        "type": "text",
+        "placeholder": "可选"
+      },
+      {
+        "name": "output_format",
+        "label": "输出格式",
+        "type": "select",
+        "default": "report",
+        "options": [
+          {
+            "label": "标准报告",
+            "value": "report"
+          },
+          {
+            "label": "简报",
+            "value": "brief"
+          }
+        ]
+      }
+    ]
+  },
+  "prompt_template": "你是分析助手。\n\n## 主题\n{{topic}}\n\n{{#if purpose}}\n## 目的\n{{purpose}}\n{{/if}}\n\n## 输出格式\n{{#if (eq output_format \"report\")}}标准报告{{/if}}{{#if (eq output_format \"brief\")}}简报{{/if}}\n\n### 请按所选格式输出\n\n{{#if (eq output_format \"report\")}}\n#### 标准报告\n**摘要** …\n**发现** …\n{{/if}}\n\n{{#if (eq output_format \"brief\")}}\n#### 简报\n**结论** …\n**要点** …\n{{/if}}",
+  "is_enabled": false,
+  "sort_order": 999
+}

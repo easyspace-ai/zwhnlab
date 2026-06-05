@@ -1,0 +1,46 @@
+{
+  "name": "@slideglance/chrome-extension",
+  "version": "0.1.3",
+  "license": "MIT",
+  "author": "Taehwan Kwag <dev@simplecore.kr>",
+  "description": "Chrome extension that opens .pptx files locally via @slideglance/viewer.",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SlideGlance/slideglance.git",
+    "directory": "apps/chrome-extension"
+  },
+  "type": "module",
+  "scripts": {
+    "predev": "node ../../scripts/run-build-wasm.mjs",
+    "dev": "vite",
+    "prebuild": "node ../../scripts/run-build-wasm.mjs",
+    "build": "node scripts/render-icons.mjs && vite build",
+    "package": "pnpm build && node scripts/package.mjs",
+    "typecheck": "tsc --noEmit",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "catalog:",
+    "@slideglance/core": "workspace:*",
+    "@slideglance/viewer": "workspace:*",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.4.0",
+    "@types/chrome": "^0.1.42",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "jsdom": "^29.0.0",
+    "sharp": "^0.34.0",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-top-level-await": "catalog:",
+    "vite-plugin-wasm": "catalog:",
+    "vitest": "catalog:"
+  }
+}

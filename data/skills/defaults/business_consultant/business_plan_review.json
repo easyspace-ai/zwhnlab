@@ -1,0 +1,46 @@
+{
+  "key": "business_plan_review",
+  "name": "商业计划评审",
+  "description": "对商业计划书（BP）进行系统性评审，评估商业模式可行性、市场逻辑和财务合理性。",
+  "icon": "Database",
+  "form_schema": {
+    "fields": [
+      {
+        "name": "bp_content",
+        "label": "商业计划内容",
+        "type": "textarea",
+        "placeholder": "请粘贴商业计划书的核心内容，或描述商业模式、目标市场、盈利方式等关键信息",
+        "required": true,
+        "rows": 6
+      },
+      {
+        "name": "stage",
+        "label": "项目阶段",
+        "type": "select",
+        "options": [
+          { "label": "种子期", "value": "seed" },
+          { "label": "天使轮", "value": "angel" },
+          { "label": "A轮及以后", "value": "growth" },
+          { "label": "成熟企业", "value": "mature" }
+        ],
+        "default": "seed"
+      },
+      {
+        "name": "focus",
+        "label": "评审重点",
+        "type": "multi_select",
+        "options": [
+          { "label": "商业模式", "value": "model" },
+          { "label": "市场逻辑", "value": "market" },
+          { "label": "财务预测", "value": "finance" },
+          { "label": "团队背景", "value": "team" },
+          { "label": "竞争壁垒", "value": "moat" }
+        ],
+        "default": ["model", "market", "finance"]
+      }
+    ]
+  },
+  "prompt_template": "你是一位资深投资人和商业顾问，拥有丰富的BP评审经验。请对以下商业计划进行系统性评审。\n\n## 商业计划内容\n{{bp_content}}\n\n## 项目阶段\n{{stage}}\n\n## 评审重点\n{{focus}}\n\n---\n\n### 执行要求\n1. **商业模式评估**：逻辑闭环是否完整、价值主张是否清晰、盈利方式是否可行。\n2. **市场逻辑验证**：市场规模测算是否合理、切入点是否精准、增长假设是否可信。\n3. **竞争分析**：差异化优势、竞争壁垒、替代风险。\n4. **财务合理性**：单位经济模型、现金流逻辑、融资需求合理性（如有财务数据）。\n5. **团队匹配度**：创始人背景与项目方向的匹配程度。\n6. **风险识别**：关键风险点和失败模式。\n\n### 输出格式\n**一、总体评分**\n[1-10分，附一句话评价]\n\n**二、商业模式评估**\n[优势 + 疑点 + 建议]\n\n**三、市场逻辑验证**\n[市场规模判断 + 切入点评价 + 增长假设可信度]\n\n**四、竞争与壁垒**\n[竞争格局 + 核心壁垒评估]\n\n**五、财务与融资**\n[单位经济 + 现金流 + 融资合理性]\n\n**六、关键风险与建议**\n[Top 3 风险 + 改进建议]",
+  "is_enabled": true,
+  "sort_order": 2
+}

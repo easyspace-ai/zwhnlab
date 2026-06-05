@@ -1,0 +1,1 @@
+{"version":3,"file":"shape.d.ts","sourceRoot":"","sources":["../../../src/renderPptx/nodes/shape.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,cAAc,EAAE,MAAM,gBAAgB,CAAC;AACrD,OAAO,KAAK,EAAE,aAAa,EAAE,MAAM,aAAa,CAAC;AASjD,KAAK,mBAAmB,GAAG,OAAO,CAAC,cAAc,EAAE;IAAE,IAAI,EAAE,OAAO,CAAA;CAAE,CAAC,CAAC;AAyBtE,wBAAgB,eAAe,CAC7B,IAAI,EAAE,mBAAmB,EACzB,GAAG,EAAE,aAAa,GACjB,IAAI,CAmEN"}

@@ -1,0 +1,50 @@
+{
+  "key": "competitor_intel",
+  "name": "竞品情报",
+  "description": "对指定竞争对手进行深度调研，分析其产品、战略、优劣势和市场动向。",
+  "icon": "ShieldCheck",
+  "form_schema": {
+    "fields": [
+      {
+        "name": "target",
+        "label": "竞品名称",
+        "type": "textarea",
+        "placeholder": "请输入需要调研的竞争对手名称或产品",
+        "required": true
+      },
+      {
+        "name": "industry",
+        "label": "所属行业",
+        "type": "text",
+        "placeholder": "如：SaaS、电商、金融科技"
+      },
+      {
+        "name": "dimensions",
+        "label": "调研维度",
+        "type": "multi_select",
+        "options": [
+          { "label": "产品功能", "value": "product" },
+          { "label": "定价策略", "value": "pricing" },
+          { "label": "市场定位", "value": "positioning" },
+          { "label": "营销策略", "value": "marketing" },
+          { "label": "技术架构", "value": "tech" },
+          { "label": "融资动态", "value": "funding" }
+        ],
+        "default": ["product", "pricing", "positioning"]
+      },
+      {
+        "name": "depth",
+        "label": "调研深度",
+        "type": "select",
+        "options": [
+          { "label": "概览", "value": "overview" },
+          { "label": "深度调研", "value": "deep" }
+        ],
+        "default": "overview"
+      }
+    ]
+  },
+  "prompt_template": "你是一位竞争情报专家。请对以下竞品进行系统性调研分析。\n\n## 竞品名称\n{{target}}\n\n{{#if industry}}\n## 所属行业\n{{industry}}\n{{/if}}\n\n## 调研维度\n{{dimensions}}\n\n## 调研深度\n{{depth}}\n\n---\n\n### 执行要求\n1. **公司概况**：基本信息、发展历程、核心团队背景。\n2. **产品分析**：核心功能、用户体验、技术路线、迭代节奏。\n3. **商业模式**：收入来源、定价策略、客户群体。\n4. **竞争优劣势**：与行业平均水平及头部玩家的对比。\n5. **近期动态**：产品发布、融资、合作、人事变动等。\n6. **威胁评估**：对我方业务的直接/间接威胁程度。\n\n### 输出格式\n**一、公司概况**\n[基本信息与发展历程]\n\n**二、产品与业务**\n[核心产品、功能矩阵、技术架构]\n\n**三、商业与战略**\n[商业模式、市场定位、增长策略]\n\n**四、优劣势对比**\n[优势 + 劣势 + 与我方对比]\n\n**五、近期关键动态**\n[3-6个月内重要事件]\n\n**六、威胁评估与应对建议**\n[威胁等级 + 应对策略建议]",
+  "is_enabled": true,
+  "sort_order": 1
+}

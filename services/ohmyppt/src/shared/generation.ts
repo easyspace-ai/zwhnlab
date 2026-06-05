@@ -1,0 +1,216 @@
+export interface UploadedAsset {
+  id: string
+  fileName: string
+  originalName: string
+  relativePath: string
+  absolutePath?: string
+  mimeType: string
+  size: number
+  createdAt: number
+}
+
+export interface ParseDocumentPlanPayload {
+  files: Array<{
+    path: string
+    name?: string
+  }>
+  topic?: string
+  pageCount?: number
+  existingBrief?: string
+}
+
+export interface ParsedDocumentPlanResult {
+  topic: string
+  pageCount: number
+  briefText: string
+  files: Array<{
+    name: string
+    type: 'markdown' | 'text' | 'csv' | 'docx' | 'image'
+    characterCount: number
+    path: string
+  }>
+}
+
+export interface PptxImportPayload {
+  filePath: string
+  title?: string
+  styleId?: string | null
+}
+
+export interface PptxImportProgressPayload {
+  sessionId?: string
+  stage: 'reading' | 'parsing' | 'media' | 'pages' | 'index' | 'database' | 'completed'
+  progress: number
+  label: string
+  pageNumber?: number
+  totalPages?: number
+}
+
+export interface PptxImportResult {
+  sessionId: string
+  pageCount: number
+  warnings: string[]
+}
+
+export interface FontRef {
+  source: 'google' | 'uploaded'
+  family: string
+  id?: string
+}
+
+export type FontSelection =
+  | { mode: 'auto' }
+  | {
+      mode: 'pair'
+      title: FontRef
+      body: FontRef
+    }
+
+export const normalizeFontSelection = (value: unknown): FontSelection => {
+  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  if (record.mode !== 'pair') return { mode: 'auto' }
+  const title =
+    record.title && typeof record.title === 'object' ? (record.title as Record<string, unknown>) : {}
+  const body =
+    record.body && typeof record.body === 'object' ? (record.body as Record<string, unknown>) : {}
+  const titleFamily = typeof title.family === 'string' ? title.family.trim() : ''
+  const bodyFamily = typeof body.family === 'string' ? body.family.trim() : ''
+  if (!titleFamily || !bodyFamily) return { mode: 'auto' }
+  const titleSource = title.source === 'uploaded' ? 'uploaded' : 'google'
+  const bodySource = body.source === 'uploaded' ? 'uploaded' : 'google'
+  return {
+    mode: 'pair',
+    title: {
+      source: titleSource,
+      family: titleFamily,
+      id: typeof title.id === 'string' ? title.id : undefined
+    },
+    body: {
+      source: bodySource,
+      family: bodyFamily,
+      id: typeof body.id === 'string' ? body.id : undefined
+    }
+  }
+}
+
+export interface GenerateStartPayload {
+  sessionId: string
+  userMessage: string
+  type?: 'deck' | 'page'
+  chatType?: 'main' | 'page'
+  chatPageId?: string
+  selectedPageId?: string
+  htmlPath?: string
+  selector?: string
+  elementTag?: string
+  elementText?: string
+  imagePaths?: string[]
+  videoPaths?: string[]
+  docPaths?: string[]
+}
+
+export interface GenerateRetryFailedPayload {
+  sessionId: string
+  userMessage?: string
+}
+
+export interface GenerateAddPagePayload {
+  sessionId: string
+  userMessage: string
+  insertAfterPageNumber: number
+}
+
+export interface GenerateRetrySinglePagePayload {
+  sessionId: string
+  pageId: string
+}
+
+export interface GeneratedPagePayload {
+  id?: string
+  pageNumber: number
+  title: string
+  html: string
+  htmlPath?: string
+  pageId?: string
+  sourceUrl?: string
+}
+
+export interface PageStatusPayload {
+  id?: string
+  pageNumber: number
+  title: string
+  pageId?: string
+  htmlPath?: string
+  error?: string
+}
+
+export interface GenerateStagePayload {
+  runId: string
+  sessionId?: string
+  stage: string
+  label: string
+  progress?: number
+  currentPage?: number
+  totalPages?: number
+  timestamp?: string
+}
+
+export type GenerateChunkEvent =
+  | {
+      type: 'stage_started' | 'stage_progress'
+      payload: GenerateStagePayload
+    }
+  | {
+      type: 'llm_status'
+      payload: GenerateStagePayload & {
+        provider?: string
+        model?: string
+        detail?: string
+      }
+    }
+  | {
+      type: 'assistant_message'
+      payload: {
+        id?: string
+        runId: string
+        sessionId?: string
+        content: string
+        chatType?: 'main' | 'page'
+        pageId?: string
+        timestamp?: string
+      }
+    }
+  | {
+      type: 'page_generated'
+      payload: GenerateStagePayload & GeneratedPagePayload
+    }
+  | {
+      type: 'page_updated'
+      payload: GenerateStagePayload & GeneratedPagePayload
+    }
+  | {
+      type: 'page_planned'
+      payload: GenerateStagePayload & PageStatusPayload
+    }
+  | {
+      type: 'page_started' | 'page_failed'
+      payload: GenerateStagePayload & PageStatusPayload
+    }
+  | {
+      type: 'run_completed'
+      payload: {
+        runId: string
+        sessionId?: string
+        totalPages: number
+        timestamp?: string
+      }
+    }
+  | {
+      type: 'run_error'
+      payload: {
+        runId: string
+        sessionId?: string
+        message: string
+        timestamp?: string
+      }
+    }

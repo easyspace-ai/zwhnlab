@@ -1,0 +1,1 @@
+{"version":3,"file":"tableUtils.d.ts","sourceRoot":"","sources":["../../src/shared/tableUtils.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,SAAS,EAAE,MAAM,aAAa,CAAC;AA8C7C,wBAAgB,sBAAsB,CAAC,IAAI,EAAE,SAAS;;;EAYrD;AAED,wBAAgB,iBAAiB,CAAC,IAAI,EAAE,SAAS,YAMhD;AAED;;;;;;;;GAQG;AACH,wBAAgB,mBAAmB,CACjC,IAAI,EAAE,SAAS,EACf,UAAU,EAAE,MAAM,GACjB,MAAM,EAAE,CAiBV"}

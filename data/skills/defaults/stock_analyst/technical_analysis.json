@@ -1,0 +1,52 @@
+{
+  "key": "technical_analysis",
+  "name": "技术分析",
+  "description": "基于K线形态、技术指标和量价关系，对指定标的进行技术面分析与买卖时机研判。",
+  "icon": "ShieldCheck",
+  "form_schema": {
+    "fields": [
+      {
+        "name": "symbol",
+        "label": "股票代码/名称",
+        "type": "text",
+        "placeholder": "如：600519 或 贵州茅台",
+        "required": true
+      },
+      {
+        "name": "timeframe",
+        "label": "分析周期",
+        "type": "select",
+        "options": [
+          { "label": "日线", "value": "daily" },
+          { "label": "周线", "value": "weekly" },
+          { "label": "月线", "value": "monthly" }
+        ],
+        "default": "daily"
+      },
+      {
+        "name": "indicators",
+        "label": "关注指标",
+        "type": "multi_select",
+        "options": [
+          { "label": "均线系统", "value": "ma" },
+          { "label": "MACD", "value": "macd" },
+          { "label": "KDJ/RSI", "value": "oscillator" },
+          { "label": "布林带", "value": "bollinger" },
+          { "label": "成交量", "value": "volume" },
+          { "label": "支撑/压力位", "value": "support_resistance" }
+        ],
+        "default": ["ma", "macd", "volume"]
+      },
+      {
+        "name": "context",
+        "label": "补充信息",
+        "type": "textarea",
+        "placeholder": "可描述当前持仓情况、成本价、或近期观察到的关键价格行为",
+        "rows": 3
+      }
+    ]
+  },
+  "prompt_template": "你是一位资深技术分析师，擅长K线形态识别与技术指标综合研判。请根据以下信息，对标的进行技术面分析。\n\n## 股票代码/名称\n{{symbol}}\n\n## 分析周期\n{{timeframe}}\n\n## 关注指标\n{{indicators}}\n\n{{#if context}}\n## 补充信息\n{{context}}\n{{/if}}\n\n---\n\n### 执行要求\n1. **趋势判断**：基于均线系统和价格结构，判断当前趋势方向（上涨/下跌/震荡）。\n2. **关键价位**：识别重要的支撑位、压力位和近期交易密集区。\n3. **指标信号**：分析所选技术指标的当前状态和潜在信号。\n4. **形态识别**：如存在典型K线形态或结构，进行识别和解读。\n5. **量价分析**：结合成交量变化判断价格行为的可信度。\n6. **操作建议**：给出具体的操作方向、入场/止损/目标位建议。\n\n### 输出格式\n**一、趋势判断**\n[方向 + 依据简述]\n\n**二、关键价位**\n| 类型 | 价位区间 | 说明 |\n|------|----------|------|\n\n**三、指标信号**\n[各指标状态 + 综合信号]\n\n**四、形态与结构**\n[识别到的形态 + 含义]\n\n**五、量价关系**\n[成交量特征 + 价格验证度]\n\n**六、操作策略**\n[方向建议 + 入场/止损/目标]",
+  "is_enabled": true,
+  "sort_order": 1
+}

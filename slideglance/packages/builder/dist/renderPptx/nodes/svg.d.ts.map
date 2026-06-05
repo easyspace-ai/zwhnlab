@@ -1,0 +1,1 @@
+{"version":3,"file":"svg.d.ts","sourceRoot":"","sources":["../../../src/renderPptx/nodes/svg.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,cAAc,EAAE,MAAM,gBAAgB,CAAC;AACrD,OAAO,KAAK,EAAE,aAAa,EAAE,MAAM,aAAa,CAAC;AAIjD,KAAK,iBAAiB,GAAG,OAAO,CAAC,cAAc,EAAE;IAAE,IAAI,EAAE,KAAK,CAAA;CAAE,CAAC,CAAC;AAElE,wBAAgB,aAAa,CAC3B,IAAI,EAAE,iBAAiB,EACvB,GAAG,EAAE,aAAa,GACjB,IAAI,CAeN"}

@@ -1,0 +1,161 @@
+{
+  "key": "data_collection",
+  "name": "资料收集",
+  "description": "针对特定议题进行全面资料收集，强制最低条数与四要素格式，为核查与调研提供原始素材。",
+  "icon": "Database",
+  "form_schema": {
+    "fields": [
+      {
+        "name": "topic",
+        "label": "收集主题",
+        "type": "textarea",
+        "placeholder": "请输入需要全面收集资料的议题或问题",
+        "required": true
+      },
+      {
+        "name": "source_types",
+        "label": "优先信源类型",
+        "type": "multi_select",
+        "options": [
+          {
+            "label": "政府公告",
+            "value": "government"
+          },
+          {
+            "label": "学术文献",
+            "value": "academic"
+          },
+          {
+            "label": "媒体",
+            "value": "media"
+          },
+          {
+            "label": "社交媒体",
+            "value": "social_media"
+          },
+          {
+            "label": "商业数据库",
+            "value": "commercial_db"
+          },
+          {
+            "label": "司法记录",
+            "value": "judicial"
+          }
+        ],
+        "default": [],
+        "description": "指定优先检索的源类型，默认为空（不限制）"
+      },
+      {
+        "name": "language",
+        "label": "语言",
+        "type": "select",
+        "options": [
+          {
+            "label": "-- 不限 --",
+            "value": ""
+          },
+          {
+            "label": "中文",
+            "value": "zh"
+          },
+          {
+            "label": "英文",
+            "value": "en"
+          },
+          {
+            "label": "日文",
+            "value": "ja"
+          },
+          {
+            "label": "韩文",
+            "value": "ko"
+          },
+          {
+            "label": "法文",
+            "value": "fr"
+          },
+          {
+            "label": "德文",
+            "value": "de"
+          },
+          {
+            "label": "西班牙文",
+            "value": "es"
+          },
+          {
+            "label": "俄文",
+            "value": "ru"
+          },
+          {
+            "label": "阿拉伯文",
+            "value": "ar"
+          }
+        ]
+      },
+      {
+        "name": "time_range",
+        "label": "时间范围",
+        "type": "select",
+        "options": [
+          {
+            "label": "过去1天",
+            "value": "1d"
+          },
+          {
+            "label": "过去3天",
+            "value": "3d"
+          },
+          {
+            "label": "过去1周",
+            "value": "1w"
+          },
+          {
+            "label": "过去1个月",
+            "value": "1m"
+          },
+          {
+            "label": "过去1年",
+            "value": "1y"
+          },
+          {
+            "label": "不限",
+            "value": ""
+          }
+        ],
+        "default": "1w"
+      },
+      {
+        "name": "min_sources",
+        "label": "最少收集数量",
+        "type": "select",
+        "options": [
+          {
+            "label": "10条",
+            "value": "10"
+          },
+          {
+            "label": "20条",
+            "value": "20"
+          },
+          {
+            "label": "30条",
+            "value": "30"
+          },
+          {
+            "label": "50条",
+            "value": "50"
+          },
+          {
+            "label": "尽可能多",
+            "value": "max"
+          }
+        ],
+        "default": "20",
+        "description": "确保收集的全面性，低于此数量视为未完成"
+      }
+    ]
+  },
+  "prompt_template": "你是一个专业的开源情报（OSINT）资料收集助手。请根据以下用户输入，对指定议题进行全面、系统的资料收集。\n\n## 收集主题\n{{topic}}\n\n## 优先信源类型\n{{source_types}}\n\n{{#if language}}\n## 语言\n{{language}}\n{{/if}}\n\n{{#if time_range}}\n## 时间范围\n{{time_range}}\n{{/if}}\n\n{{#if min_sources}}\n## 最少收集数量\n{{min_sources}}\n{{/if}}\n\n---\n\n### 核心原则\n**全面性第一**：你必须穷尽检索范围内所有可获取的相关资料，逐一列出，禁止筛选、精简或「挑几个代表性的」。如果检索结果超过 50 条，分批输出并确保无遗漏。低于「最少收集数量」视为任务未完成。\n\n**禁止敷衍**：任何形式的偷懒——如只列 3-4 条然后说「等」、用「包括但不限于」跳过列举、合并多条为一条——都属于违规。每条资料必须独立列出，拥有完整的四要素。\n\n### 执行要求\n1. **多策略检索**：\n- 至少使用 3 组不同关键词组合进行检索\n- 每组关键词覆盖不同角度和语言表述\n- 对每个搜索结果页进行翻页，确保不遗漏后续页面内容\n- 若「优先信源类型」为空，则覆盖全部信源类型；若指定了类型，则优先检索对应类型\n2. **去重与验证**：\n- 同一条信息被多个媒体报道的，列出所有来源而非只保留一个\n- 明显为机器聚合或抄袭转载的内容标注「衍生/转载」\n- 标注每条资料的发布/更新时间\n3. **信息提取**：\n- 从每篇资料中提取核心观点，禁止仅靠标题概括\n- 核心观点使用中文表述，保留关键数据、人名、机构名\n- 若原文为非中文，标题栏同时列出中文翻译和原文\n\n### 输出格式\n严格按以下格式逐条输出，不得使用任何其他结构包裹：\n\n- 标题：中文标题（原文标题）\n- 媒体名称：XX\n- 原始链接：https://...\n- 核心观点：[2-4句话概括该资料的核心事实、论点或数据]\n\n（持续列举直到全部输出完毕）\n\n### 完成标准\n- 列举数量 ≥ 最少收集数量\n- 每条资料四要素完整无缺\n- 已覆盖检索范围内的主要信源维度\n- 如确实无法达到最少收集数量，必须逐条说明每一条检索策略的覆盖情况和结果数量，证明已穷尽检索",
+  "is_enabled": true,
+  "sort_order": 2
+}

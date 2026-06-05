@@ -1,0 +1,88 @@
+name: Deploy playground to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install binaryen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      # Shared wasm dist cache — same key across every workflow.
+      - id: wasm-dist-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/core/dist
+            packages/measure/dist
+          key: wasm-dist-${{ runner.os }}-${{ hashFiles('crates/**/*.rs', 'crates/**/Cargo.toml', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'scripts/build-wasm.sh') }}
+
+      - if: steps.wasm-dist-cache.outputs.cache-hit == 'true'
+        run: |
+          find packages/core/dist packages/measure/dist -type f -exec touch {} + 2>/dev/null || true
+
+      # Single source of truth for wasm artefacts — builds both
+      # `slideglance-wasm` and `slideglance-measure-wasm` for all three
+      # consumer targets (bundler / web / node). Replaces three direct
+      # `wasm-pack build` calls that handled only `slideglance-wasm`
+      # and silently left `@slideglance/measure` unpopulated.
+      - if: steps.wasm-dist-cache.outputs.cache-hit != 'true'
+        name: Build wasm artefacts
+        run: bash scripts/build-wasm.sh
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @slideglance/viewer build
+      # No sample-fixture staging step: the web-playground production
+      # build ships drag-and-drop only (mirrors the chrome-extension
+      # empty state). Bundling samples would require tracking large
+      # `.pptx` binaries in the repo for a use case the empty state
+      # already covers.
+      - run: pnpm --filter @slideglance/web-playground build
+      - run: pnpm --filter @slideglance/landing build
+      - name: Assemble GitHub Pages site
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site
+          cp -R apps/landing/dist/. _site/
+          mkdir -p _site/playground
+          cp -R apps/web-playground/dist/. _site/playground/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,1 @@
+{"version":3,"file":"nodeRegistry.d.ts","sourceRoot":"","sources":["../../src/registry/nodeRegistry.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,WAAW,EAAE,MAAM,aAAa,CAAC;AAC/C,OAAO,KAAK,EAAE,cAAc,EAAE,MAAM,YAAY,CAAC;AAEjD,KAAK,QAAQ,GAAG,WAAW,CAAC,MAAM,CAAC,CAAC;AAIpC,wBAAgB,YAAY,CAAC,GAAG,EAAE,cAAc,GAAG,IAAI,CAKtD;AAED,wBAAgB,UAAU,CAAC,IAAI,EAAE,QAAQ,GAAG,cAAc,CAIzD"}

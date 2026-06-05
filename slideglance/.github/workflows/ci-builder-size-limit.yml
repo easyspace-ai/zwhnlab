@@ -1,0 +1,170 @@
+name: CI - builder-size-limit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/builder/src/**"
+      - "package.json"
+      - "packages/builder/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/builder/.size-limit.js"
+      - ".node-version"
+      - ".github/workflows/ci-builder-size-limit.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/builder/src/**"
+      - "package.json"
+      - "packages/builder/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/builder/.size-limit.js"
+      - ".node-version"
+      - ".github/workflows/ci-builder-size-limit.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  size-limit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Install wasm-pack
+        # @slideglance/builder imports @slideglance/measure/node; the
+        # wasm dist must exist before `tsc -p tsconfig.build.json` runs.
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      # Shared wasm dist cache — same key across every workflow.
+      - id: wasm-dist-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/core/dist
+            packages/measure/dist
+          key: wasm-dist-${{ runner.os }}-${{ hashFiles('crates/**/*.rs', 'crates/**/Cargo.toml', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'scripts/build-wasm.sh') }}
+
+      - if: steps.wasm-dist-cache.outputs.cache-hit == 'true'
+        run: |
+          find packages/core/dist packages/measure/dist -type f -exec touch {} + 2>/dev/null || true
+
+      - run: pnpm install --frozen-lockfile
+      - if: steps.wasm-dist-cache.outputs.cache-hit != 'true'
+        name: Build wasm artefacts
+        run: bash scripts/build-wasm.sh
+      - run: pnpm --filter @slideglance/builder run build
+
+      - name: Run size-limit
+        working-directory: packages/builder
+        run: pnpm exec size-limit --json > size-limit-results.json
+
+      - name: Save baseline to cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: packages/builder/size-limit-results.json
+          key: builder-size-limit-main-${{ github.sha }}
+
+      - name: Restore baseline from cache
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/builder/size-limit-baseline.json
+          key: builder-size-limit-main-${{ github.event.pull_request.base.sha }}
+          restore-keys: |
+            builder-size-limit-main-
+
+      - name: Generate size-limit comment
+        if: github.event_name == 'pull_request'
+        working-directory: packages/builder
+        run: |
+          node -e "
+          const fs = require('fs');
+          const current = JSON.parse(fs.readFileSync('size-limit-results.json', 'utf-8'));
+
+          let baseline = null;
+          try {
+            baseline = JSON.parse(fs.readFileSync('size-limit-baseline.json', 'utf-8'));
+          } catch {}
+
+          function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+          }
+
+          function formatDiff(curr, base) {
+            if (!base) return '';
+            const diff = curr - base;
+            if (diff === 0) return '0 B (0%)';
+            const sign = diff > 0 ? '+' : '';
+            const pct = ((diff / base) * 100).toFixed(2);
+            return sign + formatBytes(Math.abs(diff)) + ' (' + sign + pct + '%)';
+          }
+
+          let md = '## 📦 Size Limit Report\n\n';
+          md += '| Name | Size | Limit | Diff |\n';
+          md += '|------|------|-------|------|\n';
+
+          for (const entry of current) {
+            const baseEntry = baseline?.find(b => b.name === entry.name);
+            const diff = baseEntry ? formatDiff(entry.size, baseEntry.size) : 'N/A';
+            const status = entry.passed ? '✅' : '🚨';
+            md += '| ' + status + ' ' + entry.name + ' | ' + formatBytes(entry.size) + ' | ' + formatBytes(entry.sizeLimit) + ' | ' + diff + ' |\n';
+          }
+
+          if (!baseline) {
+            md += '\n> ℹ️ No baseline found for comparison.\n';
+          }
+
+          fs.writeFileSync('size-limit-comment.md', md);
+          "
+
+      - name: Post or update PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('packages/builder/size-limit-comment.md', 'utf-8');
+            const marker = '<!-- builder-size-limit-comment -->';
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+            const fullBody = marker + '\n' + body;
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: fullBody,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: fullBody,
+              });
+            }

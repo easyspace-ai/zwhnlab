@@ -1,0 +1,45 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "noImplicitAny": false,
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"]
+    }
+  },
+  "include": [
+    "src/index.ts",
+    "src/server/**/*",
+    "src/adapters/**/*",
+    "src/shared/**/*",
+    "src/ohmyppt/agent.ts",
+    "src/ohmyppt/db/**/*",
+    "src/ohmyppt/ipc/context.ts",
+    "src/ohmyppt/ipc/utils.ts",
+    "src/ohmyppt/ipc/generation/**/*",
+    "src/ohmyppt/ipc/engine/generate.ts",
+    "src/ohmyppt/ipc/engine/template.ts",
+    "src/ohmyppt/ipc/engine/page-assets.ts",
+    "src/ohmyppt/skills/**/*",
+    "src/ohmyppt/tools/**/*",
+    "src/ohmyppt/prompt/**/*",
+    "src/ohmyppt/history/**/*",
+    "src/ohmyppt/utils/style-skills.ts",
+    "src/ohmyppt/utils/design-contract.ts",
+    "src/ohmyppt/utils/agent-tool-logger.ts",
+    "src/ohmyppt/utils/reference-document-retrieval.ts",
+    "src/ohmyppt/utils/html-pptx/browser-scripts.ts",
+    "src/ohmyppt/utils/html-pptx/types.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

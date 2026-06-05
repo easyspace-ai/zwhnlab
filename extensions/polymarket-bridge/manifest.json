@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Polymarket Data Bridge",
+  "version": "1.0",
+  "description": "从浏览器直接获取 Polymarket 事件数据，绕过后端网络限制",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://gamma-api.polymarket.com/*",
+    "https://clob.polymarket.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

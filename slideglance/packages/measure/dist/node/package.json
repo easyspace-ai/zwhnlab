@@ -1,0 +1,20 @@
+{
+  "name": "slideglance-measure-wasm",
+  "collaborators": [
+    "Taehwan Kwag <dev@simplecore.kr>"
+  ],
+  "description": "Standalone wasm-bindgen entry point for slideglance text measurement",
+  "version": "0.1.3",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SlideGlance/slideglance"
+  },
+  "files": [
+    "slideglance_measure_wasm_bg.wasm",
+    "slideglance_measure_wasm.js",
+    "slideglance_measure_wasm.d.ts"
+  ],
+  "main": "slideglance_measure_wasm.js",
+  "types": "slideglance_measure_wasm.d.ts"
+}

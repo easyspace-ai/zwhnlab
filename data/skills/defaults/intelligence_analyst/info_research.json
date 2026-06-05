@@ -1,0 +1,182 @@
+{
+  "key": "info_research",
+  "name": "调研报告",
+  "description": "针对特定主题进行 OSINT 系统性调研，产出含信源评级与多种输出格式的结构化分析报告。",
+  "icon": "Search",
+  "form_schema": {
+    "fields": [
+      {
+        "name": "topic",
+        "label": "调研主题",
+        "type": "textarea",
+        "placeholder": "请输入需要调研的主题或问题",
+        "required": true
+      },
+      {
+        "name": "purpose",
+        "label": "调研目的",
+        "type": "text",
+        "placeholder": "如：背景梳理、决策支撑、风险研判、竞品分析等",
+        "description": "可选，用于帮助研判分析深度和侧重点"
+      },
+      {
+        "name": "source_types",
+        "label": "优先信源类型",
+        "type": "multi_select",
+        "options": [
+          {
+            "label": "政府公告",
+            "value": "government"
+          },
+          {
+            "label": "学术文献",
+            "value": "academic"
+          },
+          {
+            "label": "媒体",
+            "value": "media"
+          },
+          {
+            "label": "社交媒体",
+            "value": "social_media"
+          },
+          {
+            "label": "商业数据库",
+            "value": "commercial_db"
+          },
+          {
+            "label": "司法记录",
+            "value": "judicial"
+          }
+        ],
+        "default": [],
+        "description": "指定优先检索的源类型，默认为空（不限制）"
+      },
+      {
+        "name": "language",
+        "label": "语言",
+        "type": "select",
+        "options": [
+          {
+            "label": "-- 不限 --",
+            "value": ""
+          },
+          {
+            "label": "中文",
+            "value": "zh"
+          },
+          {
+            "label": "英文",
+            "value": "en"
+          },
+          {
+            "label": "日文",
+            "value": "ja"
+          },
+          {
+            "label": "韩文",
+            "value": "ko"
+          },
+          {
+            "label": "法文",
+            "value": "fr"
+          },
+          {
+            "label": "德文",
+            "value": "de"
+          },
+          {
+            "label": "西班牙文",
+            "value": "es"
+          },
+          {
+            "label": "俄文",
+            "value": "ru"
+          },
+          {
+            "label": "阿拉伯文",
+            "value": "ar"
+          }
+        ]
+      },
+      {
+        "name": "time_range",
+        "label": "时间范围",
+        "type": "select",
+        "options": [
+          {
+            "label": "过去1天",
+            "value": "1d"
+          },
+          {
+            "label": "过去3天",
+            "value": "3d"
+          },
+          {
+            "label": "过去1周",
+            "value": "1w"
+          },
+          {
+            "label": "过去1个月",
+            "value": "1m"
+          },
+          {
+            "label": "过去1年",
+            "value": "1y"
+          },
+          {
+            "label": "不限",
+            "value": ""
+          }
+        ]
+      },
+      {
+        "name": "depth",
+        "label": "调研深度",
+        "type": "select",
+        "options": [
+          {
+            "label": "快速调研",
+            "value": "quick"
+          },
+          {
+            "label": "深度调研",
+            "value": "deep"
+          }
+        ],
+        "default": "quick"
+      },
+      {
+        "name": "output_format",
+        "label": "输出格式",
+        "type": "select",
+        "options": [
+          {
+            "label": "标准报告",
+            "value": "report"
+          },
+          {
+            "label": "简报",
+            "value": "brief"
+          },
+          {
+            "label": "时间线",
+            "value": "timeline"
+          },
+          {
+            "label": "SWOT分析",
+            "value": "swot"
+          },
+          {
+            "label": "行动者地图",
+            "value": "actor_map"
+          }
+        ],
+        "default": "report"
+      }
+    ]
+  },
+  "prompt_template": "你是一个专业的开源情报（OSINT）调研分析师。请根据以下用户输入，对指定主题进行系统性调研，产出高质量的分析报告。\n\n## 调研主题\n{{topic}}\n\n{{#if purpose}}\n## 调研目的\n{{purpose}}\n{{/if}}\n\n## 优先信源类型\n{{source_types}}\n\n{{#if language}}\n## 语言\n{{language}}\n{{/if}}\n\n{{#if time_range}}\n## 时间范围\n{{time_range}}\n{{/if}}\n\n## 输出格式\n{{#if (eq output_format \"report\")}}标准报告{{/if}}{{#if (eq output_format \"brief\")}}简报{{/if}}{{#if (eq output_format \"timeline\")}}时间线{{/if}}{{#if (eq output_format \"swot\")}}SWOT分析{{/if}}{{#if (eq output_format \"actor_map\")}}行动者地图{{/if}}\n\n{{#if depth}}\n## 调研深度\n{{depth}}\n{{/if}}\n\n---\n\n### 执行要求\n1. **信息采集**：根据「调研主题」「时间范围」，在指定语言范围内系统检索相关信源。若「优先信源类型」为空，则覆盖全部信源类型；若指定了类型，则优先检索对应类型并标注来源类型。\n2. **信源可信度评级**（所有调研均需执行）：\n对每个引用信源按以下标准进行五级评分：\n- **A级（极高可信）**：官方政府公告、法院文书、权威学术期刊、国际组织正式报告\n- **B级（高可信）**：知名主流媒体（如路透社、BBC、新华社）、上市公司监管文件、商业登记处记录\n- **C级（中等可信）**：地方媒体、行业报告、非政府组织报告、经认证的专家声明\n- **D级（低可信）**：未经验证的社交媒体账号、匿名来源、利益相关方声明\n- **E级（不可采信）**：已被证伪或与多个高可信来源矛盾的来源\n3. **结构化分析**：\n- 识别关键事实，与背景信息区分\n- 标注时间戳精确度（精确到天/月/季度/年）\n- 区分「已确认」「待核实」「信息冲突」三个证据等级\n- 多维度拆分主题：政策/经济/社会/技术/安全等，视调研目的调整\n4. **深度差异**：\n- **快速调研**：重点检索 5-8 个核心来源（优先 A/B 级），给出简明综述和关键发现。\n- **深度调研**：检索 12+ 个多维度来源，包含不同立场和辖区视角，提供详细证据链、矛盾点分析和可信度综合评估。\n5. **已知未知声明**（必做）：在报告末尾明确列出当前调研覆盖不到的信息缺口或无法确认的关键问题。\n\n### 输出格式\n请严格按以下结构输出（仅使用所选格式，不要输出其他格式的章节）：\n\n{{#if (eq output_format \"report\")}}\n#### 标准报告\n**一、调研摘要**\n[3-5句话概括核心发现，加一句话结论]\n\n**二、背景与范围**\n[简述调研对象、时间边界、方法论说明]\n\n**三、核心发现**\n[按主题维度分节展开，每节包含：事实陈述 + 关键信源（标注可信度） + 分析洞察]\n\n**四、信源可信度矩阵**\n| 信源 | 类型 | 可信度 | 说明 |\n|------|------|--------|------|\n\n**五、信息冲突与待核实事项**\n[列出不同来源之间的矛盾点，以及缺乏充分证据支撑的论断]\n\n**六、已知未知与调研建议**\n[列出当前无法确认的信息缺口，以及进一步调研的方向]\n\n**七、参考来源**\n[列出所有引用信源，含名称、链接（如有）、可信度评级]\n{{/if}}\n\n{{#if (eq output_format \"brief\")}}\n#### 简报\n**结论：**[2-3句话核心判断]\n\n**关键发现：** [3-5条要点，每条标注信源和可信度]\n\n**未知/待验证：** [2-3个关键缺口]\n{{/if}}\n\n{{#if (eq output_format \"timeline\")}}\n#### 时间线\n**一、事件时间线**\n| 时间 | 事件 | 信源 | 可信度 |\n|------|------|------|--------|\n\n**二、趋势分析**\n[根据时间线分析演变趋势、关键节点、转折点]\n\n**三、信息缺口**\n[时间线上缺失的关键时间段或未确认的事件]\n{{/if}}\n\n{{#if (eq output_format \"swot\")}}\n#### SWOT分析\n**一、优势（Strengths）**\n\n**二、劣势（Weaknesses）**\n\n**三、机会（Opportunities）**\n\n**四、威胁（Threats）**\n[每项2-4条，均需标注信源依据]\n{{/if}}\n\n{{#if (eq output_format \"actor_map\")}}\n#### 行动者地图\n**一、核心行动者**\n| 行动者 | 角色/立场 | 影响力评估 | 关键行为 | 信源 |\n|--------|-----------|------------|----------|------|\n\n**二、关系网络**\n[描述行动者之间的关联、协作、对抗关系]\n\n**三、动态分析**\n[近期行为变化和意图研判]\n{{/if}}",
+  "is_enabled": true,
+  "sort_order": 1
+}

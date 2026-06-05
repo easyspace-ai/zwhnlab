@@ -1,0 +1,1 @@
+{"version":3,"file":"text.d.ts","sourceRoot":"","sources":["../../../src/renderPptx/nodes/text.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,cAAc,EAAE,MAAM,gBAAgB,CAAC;AACrD,OAAO,KAAK,EAAE,aAAa,EAAE,MAAM,aAAa,CAAC;AAejD,KAAK,kBAAkB,GAAG,OAAO,CAAC,cAAc,EAAE;IAAE,IAAI,EAAE,MAAM,CAAA;CAAE,CAAC,CAAC;AA2JpE,wBAAgB,cAAc,CAC5B,IAAI,EAAE,kBAAkB,EACxB,GAAG,EAAE,aAAa,GACjB,IAAI,CA4BN"}

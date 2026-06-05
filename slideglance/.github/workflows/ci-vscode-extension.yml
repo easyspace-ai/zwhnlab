@@ -1,0 +1,95 @@
+name: CI - vscode-extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/vscode-extension/**"
+      - "packages/builder/src/**"
+      - "package.json"
+      - "packages/builder/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/builder/tsconfig.json"
+      - ".node-version"
+      - ".github/workflows/ci-vscode-extension.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/vscode-extension/**"
+      - "packages/builder/src/**"
+      - "package.json"
+      - "packages/builder/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/builder/tsconfig.json"
+      - ".node-version"
+      - ".github/workflows/ci-vscode-extension.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Install wasm-pack
+        # @slideglance/builder (built below) imports @slideglance/measure/node;
+        # the wasm dist must exist before tsc runs.
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      # Shared wasm dist cache — same key across every workflow.
+      - id: wasm-dist-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/core/dist
+            packages/measure/dist
+          key: wasm-dist-${{ runner.os }}-${{ hashFiles('crates/**/*.rs', 'crates/**/Cargo.toml', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'scripts/build-wasm.sh') }}
+
+      - if: steps.wasm-dist-cache.outputs.cache-hit == 'true'
+        run: |
+          find packages/core/dist packages/measure/dist -type f -exec touch {} + 2>/dev/null || true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - if: steps.wasm-dist-cache.outputs.cache-hit != 'true'
+        name: Build wasm artefacts
+        run: bash scripts/build-wasm.sh
+      - name: Build viewer (emits d.ts the vscode-extension typecheck reads)
+        run: pnpm --filter @slideglance/viewer run build
+      - name: Build builder
+        run: pnpm --filter @slideglance/builder run build
+      - name: Format check
+        run: pnpm --filter slide-builder run fmt:check
+      - name: Lint
+        run: pnpm --filter slide-builder run lint
+      - name: Type check
+        run: pnpm --filter slide-builder run typecheck
+      - name: Build
+        run: pnpm --filter slide-builder run build
+      # Smoke test: catch vsce packaging errors (missing files,
+      # .vscodeignore misconfiguration, README/CHANGELOG issues, etc.)
+      # at PR time rather than mid-release. Output is discarded — the
+      # real .vsix is produced by release.yml's publish-vsix job.
+      - name: Package VSIX (smoke test)
+        run: pnpm --filter slide-builder exec vsce package --no-dependencies --out "${RUNNER_TEMP}/slide-builder-smoke.vsix"

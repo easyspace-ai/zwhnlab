@@ -1,0 +1,96 @@
+# 根目录 make 产物：bin/server 本地编译；bin/static/ 由本地 make frontend 构建后提交 git
+bin/server
+backend/ws-concurrent-sessions-out
+# 操作系统
+.DS_Store
+Thumbs.db
+doc
+# 日志
+*.log
+run.log
+frontend.log
+backend.log
+proxy.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 临时补丁与迁移脚本
+patch_*.py
+backend/patch_*.py
+frontend/patch_*.py
+backend/migrate_*.py
+
+# 测试截图与相关产物
+*.screenshot.png
+*.screenshot.jpg
+e2e-test-*.png
+e2e-test-*.jpg
+final-screenshot.*
+assets/screenshots/
+ 
+
+# 本地环境变量（勿提交含真实口令/令牌的文件）
+.env
+.env.local
+.env.*.local
+backend/*.db
+.idea/
+bin/server
+.vscode/
+.qoder/
+backend/artifacts/
+backend/uploads/
+backend/logs
+backups/server
+backups/.env
+.qoder/
+.idea/
+
+backend/.env
+.env 
+hana.db
+*.db
+
+pnpm-lock.yaml
+frontend/pnpm-lock.yaml
+docs/
+
+backend/hana.db
+backend/hana.db-wal
+backend/hana.db-shm
+backend/server
+backend/main
+
+node_modules/
+sessions/
+
+data/skills/custom
+data/skills/custom
+
+# slideglance - PPTX viewer monorepo
+slideglance/target
+slideglance/**/target
+slideglance/**/pkg/
+slideglance/**/dist/
+# frontend 依赖的 workspace 包：本地预编译后提交，服务端无需 Rust/wasm-pack
+!slideglance/packages/core/dist/
+!slideglance/packages/core/dist/**
+!slideglance/packages/measure/dist/
+!slideglance/packages/measure/dist/**
+!slideglance/packages/builder/dist/
+!slideglance/packages/builder/dist/**
+!slideglance/packages/viewer/dist/
+!slideglance/packages/viewer/dist/**
+slideglance/**/build/
+slideglance/.turbo/
+slideglance/.vite/
+slideglance/output/
+slideglance/coverage/
+slideglance/test-results/
+slideglance/*.vsix
+
+hana.*
+generative-ui-demo

@@ -1,0 +1,56 @@
+{
+  "key": "market_analysis",
+  "name": "市场分析",
+  "description": "针对目标行业或市场进行规模、趋势、竞争格局和增长机会的系统性分析。",
+  "icon": "Search",
+  "form_schema": {
+    "fields": [
+      {
+        "name": "industry",
+        "label": "目标行业/市场",
+        "type": "textarea",
+        "placeholder": "请输入需要分析的行业、细分市场或产品领域",
+        "required": true
+      },
+      {
+        "name": "region",
+        "label": "目标地区",
+        "type": "select",
+        "options": [
+          { "label": "全球", "value": "global" },
+          { "label": "中国", "value": "china" },
+          { "label": "北美", "value": "na" },
+          { "label": "欧洲", "value": "eu" },
+          { "label": "亚太", "value": "apac" }
+        ],
+        "default": "china"
+      },
+      {
+        "name": "depth",
+        "label": "分析深度",
+        "type": "select",
+        "options": [
+          { "label": "快速扫描", "value": "quick" },
+          { "label": "深度分析", "value": "deep" }
+        ],
+        "default": "quick"
+      },
+      {
+        "name": "focus",
+        "label": "关注重点",
+        "type": "multi_select",
+        "options": [
+          { "label": "市场规模", "value": "size" },
+          { "label": "增长趋势", "value": "trend" },
+          { "label": "竞争格局", "value": "competition" },
+          { "label": "政策环境", "value": "policy" },
+          { "label": "技术变革", "value": "tech" }
+        ],
+        "default": ["size", "trend", "competition"]
+      }
+    ]
+  },
+  "prompt_template": "你是一位资深商业咨询顾问，专精市场研究与战略分析。请根据以下输入，对目标市场进行系统性分析。\n\n## 目标行业/市场\n{{industry}}\n\n## 目标地区\n{{region}}\n\n## 分析深度\n{{depth}}\n\n## 关注重点\n{{focus}}\n\n---\n\n### 执行要求\n1. **市场概览**：提供市场规模（TAM/SAM/SOM）、增长率、生命周期阶段的评估。\n2. **竞争格局**：识别主要玩家、市场份额分布、竞争强度和进入壁垒。\n3. **趋势驱动**：分析技术、政策、消费行为等关键驱动因素。\n4. **机会与风险**：列出关键增长机会和潜在风险点。\n5. **深度差异**：\n   - **快速扫描**：提供核心数据点和关键结论（3-5个要点）。\n   - **深度分析**：包含详细数据、多维度对比、情景分析和战略建议。\n\n### 输出格式\n**一、市场概览**\n[市场规模、增速、阶段判断]\n\n**二、竞争格局**\n[主要玩家、份额、竞争态势]\n\n**三、关键趋势**\n[驱动因素与变化方向]\n\n**四、机会与风险**\n[增长机会 + 潜在风险]\n\n**五、战略建议**（仅深度分析）\n[进入策略、差异化方向、关键成功要素]",
+  "is_enabled": true,
+  "sort_order": 0
+}

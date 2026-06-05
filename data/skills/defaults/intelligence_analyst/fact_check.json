@@ -1,0 +1,112 @@
+{
+  "key": "fact_check",
+  "name": "事实核查",
+  "description": "对特定信息、声明或报道进行多源交叉验证，识别虚假信息、误导性内容与 propaganda。",
+  "icon": "ShieldCheck",
+  "form_schema": {
+    "fields": [
+      {
+        "name": "target",
+        "label": "核查内容",
+        "type": "textarea",
+        "placeholder": "请输入需要核查的信息、声明或报道内容",
+        "required": true
+      },
+      {
+        "name": "dispute_factors",
+        "label": "质疑因素",
+        "type": "text",
+        "placeholder": "如：来源可疑、数据矛盾、与常识不符等"
+      },
+      {
+        "name": "language",
+        "label": "语言",
+        "type": "select",
+        "options": [
+          {
+            "label": "中文",
+            "value": "zh"
+          },
+          {
+            "label": "英文",
+            "value": "en"
+          },
+          {
+            "label": "日文",
+            "value": "ja"
+          },
+          {
+            "label": "韩文",
+            "value": "ko"
+          },
+          {
+            "label": "法文",
+            "value": "fr"
+          },
+          {
+            "label": "德文",
+            "value": "de"
+          },
+          {
+            "label": "西班牙文",
+            "value": "es"
+          },
+          {
+            "label": "俄文",
+            "value": "ru"
+          },
+          {
+            "label": "阿拉伯文",
+            "value": "ar"
+          }
+        ]
+      },
+      {
+        "name": "time_range",
+        "label": "时间范围",
+        "type": "select",
+        "options": [
+          {
+            "label": "过去1天",
+            "value": "1d"
+          },
+          {
+            "label": "过去3天",
+            "value": "3d"
+          },
+          {
+            "label": "过去1周",
+            "value": "1w"
+          },
+          {
+            "label": "过去1个月",
+            "value": "1m"
+          },
+          {
+            "label": "过去1年",
+            "value": "1y"
+          }
+        ]
+      },
+      {
+        "name": "depth",
+        "label": "调查深度",
+        "type": "select",
+        "options": [
+          {
+            "label": "快速核查",
+            "value": "quick"
+          },
+          {
+            "label": "深度核查",
+            "value": "deep"
+          }
+        ],
+        "default": "quick"
+      }
+    ]
+  },
+  "prompt_template": "你是一个专业的事实核查助手。请根据以下用户输入，对目标内容进行系统性的真伪核查。\n\n## 核查内容\n{{target}}\n\n{{#if dispute_factors}}\n## 质疑因素\n{{dispute_factors}}\n{{/if}}\n\n{{#if language}}\n## 语言\n{{language}}\n{{/if}}\n\n{{#if time_range}}\n## 时间范围\n{{time_range}}\n{{/if}}\n\n{{#if depth}}\n## 调查深度\n{{depth}}\n{{/if}}\n\n---\n\n### 执行要求\n1. **信息检索**：根据「核查内容」和「时间范围」，在指定语言范围内检索相关权威来源（官方数据、权威媒体报道、学术论文、专业机构声明等）。\n2. **交叉验证**：对检索到的信息进行交叉比对，识别矛盾点。结合「质疑因素」中用户提供的疑点，重点验证。\n3. **判定标准**：\n- **真实**：多个独立权威来源一致确认，无矛盾。\n- **部分真实**：核心事实属实，但存在细节偏差或夸大。\n- **无法核实**：现有公开信息不足以支撑明确判断。\n- **虚假**：关键事实被权威来源否认，或与可验证数据严重矛盾。\n4. **深度差异**：\n- **快速核查**：重点检索 3-5 个核心权威来源，给出简明判定和关键证据。\n- **深度核查**：检索 8+ 个多维度来源，包含正反双方观点，提供详细的证据链分析和可信度评估。\n\n### 输出格式\n请按以下结构输出核查报告：\n\n**一、核查结论**\n[一句话给出判定：真实 / 部分真实 / 无法核实 / 虚假]\n\n**二、关键证据**\n- [列举2-5条支撑结论的关键事实，每条附来源]\n\n**三、分析过程**\n[简述检索路径、交叉验证过程和矛盾点分析]\n\n**四、可信度评估**（仅深度核查）\n- 信息来源可信度评级\n- 证据链完整度\n- 潜在的信息盲区\n\n**五、建议**\n[如信息不足以判定，给出进一步核查的方向]",
+  "is_enabled": true,
+  "sort_order": 0
+}

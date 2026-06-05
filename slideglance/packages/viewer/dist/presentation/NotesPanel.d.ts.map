@@ -1,0 +1,1 @@
+{"version":3,"file":"NotesPanel.d.ts","sourceRoot":"","sources":["../../src/presentation/NotesPanel.tsx"],"names":[],"mappings":"AAAA;;;;GAIG;AAGH,OAAO,KAAK,EAAE,SAAS,EAAE,MAAM,aAAa,CAAC;AAS7C,MAAM,WAAW,eAAe;IAC9B,YAAY,EAAE,MAAM,CAAC;IACrB,IAAI,EAAE,SAAS,GAAG,IAAI,CAAC;CACxB;AAED,wBAAgB,UAAU,CAAC,KAAK,EAAE,eAAe,GAAG,GAAG,CAAC,OAAO,CA4B9D"}

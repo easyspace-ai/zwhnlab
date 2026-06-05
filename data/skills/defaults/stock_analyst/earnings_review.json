@@ -1,0 +1,49 @@
+{
+  "key": "earnings_review",
+  "name": "财报解读",
+  "description": "对公司季度/年度财报进行深度解读，分析核心财务指标变化、经营质量与估值水平。",
+  "icon": "Newspaper",
+  "form_schema": {
+    "fields": [
+      {
+        "name": "company",
+        "label": "公司名称/代码",
+        "type": "text",
+        "placeholder": "如：宁德时代 或 300750",
+        "required": true
+      },
+      {
+        "name": "report_period",
+        "label": "报告期",
+        "type": "text",
+        "placeholder": "如：2024年Q3",
+        "required": true
+      },
+      {
+        "name": "highlights",
+        "label": "财报要点",
+        "type": "textarea",
+        "placeholder": "粘贴财报核心数据：营收、净利润、毛利率、现金流等关键指标",
+        "required": true,
+        "rows": 5
+      },
+      {
+        "name": "focus",
+        "label": "关注维度",
+        "type": "multi_select",
+        "options": [
+          { "label": "盈利能力", "value": "profitability" },
+          { "label": "成长性", "value": "growth" },
+          { "label": "运营效率", "value": "efficiency" },
+          { "label": "偿债能力", "value": "solvency" },
+          { "label": "现金流", "value": "cashflow" },
+          { "label": "估值水平", "value": "valuation" }
+        ],
+        "default": ["profitability", "growth", "cashflow"]
+      }
+    ]
+  },
+  "prompt_template": "你是一位资深财务分析师，专精上市公司财报研究与估值分析。请对以下财报进行深度解读。\n\n## 公司名称/代码\n{{company}}\n\n## 报告期\n{{report_period}}\n\n## 财报要点\n{{highlights}}\n\n## 关注维度\n{{focus}}\n\n---\n\n### 执行要求\n1. **业绩概览**：营收、利润增速与市场预期对比，超预期/低于预期的核心原因。\n2. **盈利能力**：毛利率、净利率、ROE变化趋势及驱动因素。\n3. **成长质量**：收入增长是量价齐升还是单一驱动，增长可持续性评估。\n4. **现金流分析**：经营现金流与净利润匹配度，自由现金流状况。\n5. **资产负债**：关键科目变化（存货、应收、商誉、有息负债等）。\n6. **估值评估**：基于当前业绩的PE/PB/PEG水平，与历史及同业对比。\n7. **前瞻判断**：对下一季度/年度的关键展望和潜在催化剂。\n\n### 输出格式\n**一、业绩概览**\n[核心数据 + 预期对比 + 关键变化]\n\n**二、盈利能力分析**\n[毛利率/净利率/ROE + 趋势 + 原因]\n\n**三、成长质量评估**\n[增长来源 + 可持续性 + 风险]\n\n**四、现金流与资产质量**\n[经营现金流 + 资产负债关键变化]\n\n**五、估值水平**\n[当前估值 + 历史对比 + 同业对比]\n\n**六、关键结论与前瞻**\n[投资评级倾向 + 核心催化剂 + 风险点]",
+  "is_enabled": true,
+  "sort_order": 2
+}

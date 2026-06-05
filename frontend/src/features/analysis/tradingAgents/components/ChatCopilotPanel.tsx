@@ -1,0 +1,989 @@
+import { FormEvent, useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
+import {
+    Bot, Loader2, Send, StopCircle, Sparkles, Settings2, ChevronDown, ChevronUp, FileText, ChevronRight, Trash2,
+    TrendingUp, MessageCircle, Newspaper, Calculator, BarChart2, DollarSign,
+    Swords, ArrowBigUp, ArrowBigDown, Brain, Briefcase, Flame, Scale, Shield, CheckCircle2,
+} from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import {
+    getTradingJobResult,
+    getTradingJobStatus,
+    getTradingReports,
+    streamTradingAnalysis,
+    type TradingApiReportSummary,
+} from '@/lib/tradingApi'
+import { useAnalysisStore } from '../analysisStore'
+import type {
+    AgentReportEvent,
+    AgentSnapshotEvent,
+    AgentStatusEvent,
+    AnalysisReport,
+    ReportChunkEvent,
+} from '../types'
+
+export type ChatCopilotPanelHandle = {
+    submitPrompt: (text: string) => void
+}
+
+interface ChatCopilotPanelProps {
+    onSymbolDetected: (symbol: string) => void
+    onShowReport?: (section?: string) => void
+    initialInput?: string
+}
+
+const ANALYST_OPTIONS = [
+    { id: 'market', label: '市场分析', description: '技术面' },
+    { id: 'social', label: '舆情分析', description: '社交媒体' },
+    { id: 'news', label: '新闻分析', description: '财经新闻' },
+    { id: 'fundamentals', label: '基本面', description: '财务估值' },
+    { id: 'macro', label: '宏观板块', description: '宏观经济' },
+    { id: 'smart_money', label: '主力资金', description: '机构动向' },
+]
+
+interface StreamEvent {
+    event: string
+    data: Record<string, unknown>
+}
+
+const PRESET_PROMPTS = [
+    '分析一下贵州茅台(600519.SH)今天走势',
+    '请分析稀土ETF嘉实(516150)在2026-03-03的情况',
+    '分析宁德时代300750.SZ，给出交易建议',
+]
+
+const REPORT_SECTION_TITLES: Record<string, string> = {
+    market_report: '市场分析报告',
+    sentiment_report: '舆情分析报告',
+    news_report: '新闻分析报告',
+    fundamentals_report: '基本面分析报告',
+    macro_report: '宏观分析报告',
+    smart_money_report: '主力资金分析报告',
+    game_theory_report: '博弈裁判报告',
+    investment_plan: '研究团队投资计划',
+    trader_investment_plan: '交易员计划',
+    final_trade_decision: '最终交易决策',
+}
+
+// Section → Lucide 图标 + 颜色（与 AGENT_META_MAP 保持一致）
+const SECTION_META: Record<string, { Icon: React.FC<{ className?: string }>; iconCls: string; bgCls: string }> = {
+    market_report:          { Icon: TrendingUp,    iconCls: 'text-blue-500',    bgCls: 'bg-blue-100 dark:bg-blue-500/20' },
+    sentiment_report:       { Icon: MessageCircle, iconCls: 'text-fuchsia-500', bgCls: 'bg-fuchsia-100 dark:bg-fuchsia-500/20' },
+    news_report:            { Icon: Newspaper,     iconCls: 'text-cyan-500',    bgCls: 'bg-cyan-100 dark:bg-cyan-500/20' },
+    fundamentals_report:    { Icon: Calculator,    iconCls: 'text-emerald-500', bgCls: 'bg-emerald-100 dark:bg-emerald-500/20' },
+    macro_report:           { Icon: BarChart2,     iconCls: 'text-violet-500',  bgCls: 'bg-violet-100 dark:bg-violet-500/20' },
+    smart_money_report:     { Icon: DollarSign,    iconCls: 'text-amber-500',   bgCls: 'bg-amber-100 dark:bg-amber-500/20' },
+    game_theory_report:     { Icon: Swords,        iconCls: 'text-rose-500',    bgCls: 'bg-rose-100 dark:bg-rose-500/20' },
+    investment_plan:        { Icon: Brain,         iconCls: 'text-indigo-500',  bgCls: 'bg-indigo-100 dark:bg-indigo-500/20' },
+    trader_investment_plan: { Icon: Briefcase,     iconCls: 'text-orange-500',  bgCls: 'bg-orange-100 dark:bg-orange-500/20' },
+    final_trade_decision:   { Icon: CheckCircle2,  iconCls: 'text-teal-500',    bgCls: 'bg-teal-100 dark:bg-teal-500/20' },
+}
+
+// 与 AgentCollaboration.tsx 保持一致的图标 + 颜色体系
+const AGENT_META_MAP: Record<string, { Icon: React.FC<{ className?: string }>; iconCls: string; bgCls: string; label: string }> = {
+    'Market Analyst':       { Icon: TrendingUp,   iconCls: 'text-blue-500',    bgCls: 'bg-blue-100 dark:bg-blue-500/20',    label: '技术面' },
+    'Social Analyst':       { Icon: MessageCircle, iconCls: 'text-fuchsia-500', bgCls: 'bg-fuchsia-100 dark:bg-fuchsia-500/20', label: '舆情' },
+    'News Analyst':         { Icon: Newspaper,     iconCls: 'text-cyan-500',    bgCls: 'bg-cyan-100 dark:bg-cyan-500/20',    label: '新闻' },
+    'Fundamentals Analyst': { Icon: Calculator,    iconCls: 'text-emerald-500', bgCls: 'bg-emerald-100 dark:bg-emerald-500/20', label: '基本面' },
+    'Macro Analyst':        { Icon: BarChart2,     iconCls: 'text-violet-500',  bgCls: 'bg-violet-100 dark:bg-violet-500/20', label: '宏观' },
+    'Smart Money Analyst':  { Icon: DollarSign,    iconCls: 'text-amber-500',   bgCls: 'bg-amber-100 dark:bg-amber-500/20',  label: '主力资金' },
+    'Game Theory Manager':  { Icon: Swords,        iconCls: 'text-rose-500',    bgCls: 'bg-rose-100 dark:bg-rose-500/20',    label: '博弈裁判' },
+    'Bull Researcher':      { Icon: ArrowBigUp,    iconCls: 'text-emerald-500', bgCls: 'bg-emerald-100 dark:bg-emerald-500/20', label: '多头' },
+    'Bear Researcher':      { Icon: ArrowBigDown,  iconCls: 'text-rose-500',    bgCls: 'bg-rose-100 dark:bg-rose-500/20',    label: '空头' },
+    'Research Manager':     { Icon: Brain,         iconCls: 'text-indigo-500',  bgCls: 'bg-indigo-100 dark:bg-indigo-500/20', label: '研究总监' },
+    'Trader':               { Icon: Briefcase,     iconCls: 'text-orange-500',  bgCls: 'bg-orange-100 dark:bg-orange-500/20', label: '交易员' },
+    'Aggressive Analyst':   { Icon: Flame,         iconCls: 'text-red-500',     bgCls: 'bg-red-100 dark:bg-red-500/20',      label: '激进' },
+    'Neutral Analyst':      { Icon: Scale,         iconCls: 'text-slate-500',   bgCls: 'bg-slate-100 dark:bg-slate-500/20',  label: '中性' },
+    'Conservative Analyst': { Icon: Shield,        iconCls: 'text-amber-500',   bgCls: 'bg-amber-100 dark:bg-amber-500/20',  label: '稳健' },
+    'Portfolio Manager':    { Icon: CheckCircle2,  iconCls: 'text-teal-500',    bgCls: 'bg-teal-100 dark:bg-teal-500/20',    label: '组合经理' },
+    '意图解析':             { Icon: Bot,            iconCls: 'text-slate-400',   bgCls: 'bg-slate-100 dark:bg-slate-700',     label: '意图解析' },
+}
+
+function ReportCard({
+    section,
+    content,
+    streaming,
+    onOpen,
+}: {
+    section: string
+    content: string
+    streaming: boolean
+    onOpen: () => void
+}) {
+    const title = REPORT_SECTION_TITLES[section] || section
+    const meta = SECTION_META[section]
+    const preview = content.replace(/^#+\s*/gm, '').replace(/\*\*/g, '').slice(0, 80)
+
+    const IconEl = meta?.Icon || FileText
+    const iconCls = meta?.iconCls || 'text-slate-400'
+    const bgCls = meta?.bgCls || 'bg-slate-100 dark:bg-slate-700'
+
+    if (streaming) {
+        return (
+            <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-sm">
+                <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${bgCls} shrink-0`}>
+                    <IconEl className={`w-4 h-4 ${iconCls}`} />
+                </span>
+                <span className="text-blue-300 font-medium text-xs">{title}</span>
+                <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0 ml-auto" />
+            </div>
+        )
+    }
+
+    return (
+        <button
+            onClick={onOpen}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 hover:border-blue-400 dark:hover:border-blue-500/40 hover:bg-blue-50 dark:hover:bg-slate-800 transition-all text-left group"
+        >
+            <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${bgCls} shrink-0`}>
+                <IconEl className={`w-4 h-4 ${iconCls}`} />
+            </span>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-300 transition-colors">{title}</p>
+                <p className="text-xs text-slate-500 truncate mt-0.5">{preview}...</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 shrink-0 transition-colors" />
+        </button>
+    )
+}
+
+const ChatCopilotPanel = forwardRef<ChatCopilotPanelHandle, ChatCopilotPanelProps>(function ChatCopilotPanel(
+    { onSymbolDetected, onShowReport, initialInput },
+    ref,
+) {
+    const [input, setInput] = useState(initialInput || '')
+    const [streaming, setStreaming] = useState(false)
+    const [showConfig, setShowConfig] = useState(false)
+    // Tracks agent bubbles waiting for their first token (shows "正在推理分析中..." spinner)
+    const pendingAgentMsgIdsRef = useRef<Set<string>>(new Set())
+    // Only used to trigger re-render when pending status changes
+    const [, forceUpdate] = useState(0)
+    const [expandedAgentMsgId, setExpandedAgentMsgId] = useState<string | null>(null)
+    const [selectedAnalysts, setSelectedAnalysts] = useState<string[]>(() => {
+        try {
+            const stored = localStorage.getItem('tradingagents-settings')
+            if (!stored) return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money']
+            const parsed = JSON.parse(stored) as { defaultAnalysts?: string[] }
+            if (Array.isArray(parsed.defaultAnalysts) && parsed.defaultAnalysts.length > 0) {
+                return parsed.defaultAnalysts
+            }
+        } catch {}
+        return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money']
+    })
+    // track which section IDs have been added to chatMessages and whether they're done
+    const streamingReportIds = useRef<Map<string, boolean>>(new Map()) // section → isComplete
+    const agentMessageMapRef = useRef<Record<string, string>>({})
+    const firstTokenMapRef = useRef<Record<string, boolean>>({})
+    const sectionToMsgIdsRef = useRef<Record<string, string[]>>({}) // section → all agent bubble msgIds
+    const typingIndicatorIdRef = useRef<string | null>(null)
+    const streamAbortRef = useRef<AbortController | null>(null)
+    const messagesEndRef = useRef<HTMLDivElement>(null)
+    const messagesContainerRef = useRef<HTMLDivElement>(null)
+
+    const {
+        chatMessages,
+        isAnalyzing,
+        setCurrentJobId,
+        setCurrentSymbol,
+        setIsAnalyzing,
+        setIsConnected,
+        setCurrentHorizon,
+        updateAgentStatus,
+        updateAgentSnapshot,
+        addAgentReport,
+        addReportChunk,
+        addChatMessage,
+        appendToChatMessage,
+        setMessageContent,
+        setReport,
+        setStructuredData,
+        markAgentMessagesComplete,
+        clearSession,
+        reset,
+    } = useAnalysisStore()
+
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+    const recoverInterruptedJob = async () => {
+        const { currentJobId } = useAnalysisStore.getState()
+        if (!currentJobId) return false
+
+        pushSystem(`分析流中断，正在回查任务状态：${currentJobId}`)
+
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+            const status = await getTradingJobStatus(currentJobId)
+
+            if (status.status === 'completed') {
+                const result = await getTradingJobResult(currentJobId)
+                const reportBody = (result.result ?? null) as unknown as AnalysisReport | null
+                setReport(reportBody)
+
+                const symbol = reportBody?.symbol
+                const tradeDate = reportBody?.trade_date
+                if (symbol) {
+                    setCurrentSymbol(symbol)
+                    onSymbolDetected(symbol)
+                }
+
+                try {
+                    const history = await getTradingReports(symbol, 0, 10)
+                    const matched =
+                        history.reports.find((item: TradingApiReportSummary) => item.trade_date === tradeDate) ??
+                        history.reports[0]
+                    if (matched) {
+                        setStructuredData({
+                            riskItems: matched.risk_items as never,
+                            keyMetrics: matched.key_metrics as never,
+                            confidence: matched.confidence ?? null,
+                            targetPrice: matched.target_price ?? null,
+                            stopLoss: matched.stop_loss_price ?? null,
+                        })
+                    }
+                } catch {
+                    // 历史报告回填失败时，至少保留主报告正文
+                }
+
+                pushAssistant(
+                    `**分析完成（已从中断连接恢复）**\n\n方向倾向：**${String(reportBody?.direction || '未知')}**\n\n执行动作：**${String(reportBody?.decision || 'HOLD')}**\n\n> 免责声明：以上内容由模型基于公开数据与规则生成，仅供研究参考，不构成任何投资建议或收益承诺。`
+                )
+                return true
+            }
+
+            if (status.status === 'failed') {
+                pushAssistant(`分析失败：${status.error || 'unknown error'}`)
+                return true
+            }
+
+            await sleep(1500)
+        }
+
+        return false
+    }
+
+    useEffect(() => {
+        const container = messagesContainerRef.current
+        if (!container) return
+        container.scrollTo({
+            top: container.scrollHeight,
+            behavior: 'smooth',
+        })
+    }, [chatMessages])
+
+    const toggleAnalyst = (id: string) => {
+        setSelectedAnalysts((prev) =>
+            prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
+        )
+    }
+
+    const pushAssistant = (content: string) => {
+        addChatMessage({
+            id: `${Date.now()}-${Math.random()}`,
+            role: 'assistant',
+            content,
+            timestamp: new Date().toISOString(),
+        })
+    }
+
+    const pushSystem = (content: string) => {
+        addChatMessage({
+            id: `${Date.now()}-${Math.random()}`,
+            role: 'system',
+            content,
+            timestamp: new Date().toISOString(),
+        })
+    }
+
+    const parseAndDispatch = (event: StreamEvent) => {
+        const { event: eventName, data } = event
+        switch (eventName) {
+            case 'job.ready':
+                setIsConnected(true)
+                // 把 typing indicator 换成"解析中"提示，告知用户正在识别标的
+                if (typingIndicatorIdRef.current) {
+                    setMessageContent(typingIndicatorIdRef.current, '__parsing__')
+                }
+                break
+            case 'job.created': {
+                const jobId = String(data.job_id || '')
+                const symbol = String(data.symbol || '')
+                if (jobId) setCurrentJobId(jobId)
+                if (symbol) {
+                    setCurrentSymbol(symbol)
+                    onSymbolDetected(symbol)
+                }
+                // 切换 indicator 到"采集数据"阶段
+                if (typingIndicatorIdRef.current) {
+                    setMessageContent(typingIndicatorIdRef.current, `__status:collecting:${symbol}__`)
+                }
+                streamingReportIds.current.clear()
+                agentMessageMapRef.current = {}
+                firstTokenMapRef.current = {}
+                sectionToMsgIdsRef.current = {}
+                pendingAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
+                break
+            }
+            case 'job.running': {
+                setIsAnalyzing(true)
+                const calAdj = Boolean((data as Record<string, unknown>)?.calendar_adjustment)
+                const runMsg = String((data as Record<string, unknown>)?.msg || '').trim()
+                if (calAdj && runMsg) {
+                    pushSystem(runMsg)
+                }
+                // 切换 indicator 到"分析启动"阶段
+                if (typingIndicatorIdRef.current) {
+                    setMessageContent(typingIndicatorIdRef.current, '__status:analyzing__')
+                }
+                break
+            }
+            case 'agent.horizon_start': {
+                const h = String(data.horizon || '')
+                setCurrentHorizon(h || null)
+                break
+            }
+            case 'agent.horizon_done':
+                // keep currentHorizon until job completes so badge stays visible
+                break
+            case 'job.completed': {
+                setCurrentHorizon(null)
+                setIsAnalyzing(false)
+                // 任务结束：所有 agent 消息标记为已完成（持久化到 store）
+                pendingAgentMsgIdsRef.current = new Set()
+                forceUpdate(n => n + 1)
+                markAgentMessagesComplete()
+                if (typeof data.result === 'object' && data.result && 'symbol' in data.result) {
+                    const symbol = String((data.result as Record<string, unknown>).symbol || '')
+                    if (symbol) {
+                        setCurrentSymbol(symbol)
+                        onSymbolDetected(symbol)
+                    }
+                }
+                setReport((data.result || null) as AnalysisReport | null)
+                setStructuredData({
+                    riskItems: data.risk_items as never,
+                    keyMetrics: data.key_metrics as never,
+                    confidence: data.confidence as number | null,
+                    targetPrice: data.target_price as number | null,
+                    stopLoss: data.stop_loss_price as number | null,
+                })
+                {
+                    const calNote = String((data as Record<string, unknown>).trade_date_calendar_note || '').trim()
+                    const tail =
+                        (calNote ? `\n\n${calNote}` : '') +
+                        `\n\n> 免责声明：以上内容由模型基于公开数据与规则生成，仅供研究参考，不构成任何投资建议或收益承诺。`
+                    pushAssistant(
+                        `**分析完成**\n\n方向倾向：**${String(data.direction || '未知')}**\n\n执行动作：**${String(data.decision || 'HOLD')}**${tail}`
+                    )
+                }
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification('TradingAgents 分析完成', {
+                        body: data.direction ? `方向：${String(data.direction)} · 动作：${String(data.decision || 'HOLD')}` : '点击查看完整报告',
+                        icon: '/favicon.ico',
+                    })
+                }
+                break
+            }
+            case 'job.failed':
+                setCurrentHorizon(null)
+                setIsAnalyzing(false)
+                pushAssistant(`分析失败：${String(data.error || 'unknown error')}`)
+                break
+            case 'agent.status': {
+                const statusData = data as unknown as { agent: string; status: string; horizon?: string }
+                const agentKey2 = `${statusData.agent}-${statusData.horizon || 'main'}`
+
+                if (statusData.status === 'in_progress') {
+                    // 第一个 agent 开始工作，移除状态指示器
+                    if (typingIndicatorIdRef.current) {
+                        useAnalysisStore.setState(state => ({
+                            chatMessages: state.chatMessages.filter(m => m.id !== typingIndicatorIdRef.current)
+                        }))
+                        typingIndicatorIdRef.current = null
+                    }
+
+                    const agentName = statusData.agent
+                    const horizon = statusData.horizon ? `(${statusData.horizon === 'short' ? '短线' : '中线'})` : ''
+                    const msgId = `chat-agent-msg-${agentName}-${statusData.horizon || 'main'}-${Date.now()}`
+
+                    agentMessageMapRef.current[agentKey2] = msgId
+                    firstTokenMapRef.current[msgId] = true
+
+                    addChatMessage({
+                        id: msgId,
+                        role: 'assistant',
+                        agent: agentName,
+                        content: `**${agentName}** ${horizon} 正在思考并撰写报告中...`,
+                        timestamp: new Date().toISOString()
+                    })
+                    pendingAgentMsgIdsRef.current.add(msgId); forceUpdate(n => n + 1)
+                } else if (statusData.status === 'completed' || statusData.status === 'skipped') {
+                    // Agent 完成/跳过 → 移出 pending，标记为已完成（持久化）
+                    const existingMsgId = agentMessageMapRef.current[agentKey2]
+                    if (existingMsgId) {
+                        pendingAgentMsgIdsRef.current.delete(existingMsgId)
+                        forceUpdate(n => n + 1)
+                        markAgentMessagesComplete([existingMsgId])
+                    }
+                }
+                updateAgentStatus(statusData as unknown as AgentStatusEvent)
+                break
+            }
+            case 'agent.token': {
+                const tokenData = data as unknown as { agent: string; report: string; token: string; horizon?: string }
+
+                // 意图解析的原始 JSON 不在对话框显示（parsing indicator 已提供 UX）
+                if (tokenData.agent === '意图解析') break
+
+                // 第一个 agent token 到达时移除 parsing/typing indicator
+                if (typingIndicatorIdRef.current) {
+                    useAnalysisStore.setState(state => ({
+                        chatMessages: state.chatMessages.filter(m => m.id !== typingIndicatorIdRef.current)
+                    }))
+                    typingIndicatorIdRef.current = null
+                }
+
+                const agentKey = `${tokenData.agent}-${tokenData.horizon || 'main'}`
+                let targetMsgId = agentMessageMapRef.current[agentKey]
+
+                // Fallback: create bubble on first token if agent.status was missed or arrived late
+                if (!targetMsgId) {
+                    const horizonSuffix = tokenData.horizon ? `(${tokenData.horizon === 'short' ? '短线' : '中线'})` : ''
+                    targetMsgId = `chat-agent-msg-${tokenData.agent}-${tokenData.horizon || 'main'}-${Date.now()}`
+                    agentMessageMapRef.current[agentKey] = targetMsgId
+                    firstTokenMapRef.current[targetMsgId] = true
+                    addChatMessage({
+                        id: targetMsgId,
+                        role: 'assistant',
+                        agent: tokenData.agent,
+                        content: `**${tokenData.agent}** ${horizonSuffix} 正在思考并撰写报告中...`,
+                        timestamp: new Date().toISOString(),
+                    })
+                    pendingAgentMsgIdsRef.current.add(targetMsgId); forceUpdate(n => n + 1)
+                }
+
+                // 记录 section → msgId 映射（多值），用于后续转换成 ReportCard
+                if (tokenData.report) {
+                    const ids = sectionToMsgIdsRef.current[tokenData.report] ||= []
+                    if (!ids.includes(targetMsgId)) ids.push(targetMsgId)
+                }
+
+                if (firstTokenMapRef.current[targetMsgId]) {
+                    const horizonText = tokenData.horizon ? `(${tokenData.horizon === 'short' ? '短线' : '中线'})` : ''
+                    setMessageContent(targetMsgId, `### ${tokenData.agent} ${horizonText}\n\n${tokenData.token}`)
+                    firstTokenMapRef.current[targetMsgId] = false
+                    // 第一个 token 到达，移出 pending 状态
+                    pendingAgentMsgIdsRef.current.delete(targetMsgId)
+                } else {
+                    appendToChatMessage(targetMsgId, tokenData.token)
+                }
+                break
+            }
+            case 'agent.snapshot':
+                updateAgentSnapshot(data as unknown as AgentSnapshotEvent)
+                break
+            case 'agent.report':
+                addAgentReport(data as unknown as AgentReportEvent)
+                break
+            case 'agent.report.chunk': {
+                const chunkData = data as unknown as ReportChunkEvent
+                const { section, is_complete } = chunkData
+                addReportChunk(chunkData) // 更新报告面板的打字机效果
+
+                if (is_complete && !streamingReportIds.current.get(section)) {
+                    streamingReportIds.current.set(section, true)
+                    const msgIds = sectionToMsgIdsRef.current[section] || []
+                    const lastMsgId = msgIds[msgIds.length - 1]
+                    const earlierMsgIds = msgIds.slice(0, -1)
+
+                    if (lastMsgId) {
+                        // 最后一个 agent bubble 转换成已完成的 ReportCard
+                        useAnalysisStore.setState(state => ({
+                            chatMessages: state.chatMessages.map(m =>
+                                m.id === lastMsgId
+                                    ? { ...m, role: 'report' as const, section, complete: true }
+                                    : m
+                            )
+                        }))
+                        // 早期 agent bubble 标记为已完成（保留为 assistant 卡片）
+                        if (earlierMsgIds.length > 0) {
+                            markAgentMessagesComplete(earlierMsgIds)
+                        }
+                    } else {
+                        // 兜底：没找到对应气泡，直接创建 ReportCard
+                        const buffer = useAnalysisStore.getState().streamingSections[section]?.buffer || ''
+                        addChatMessage({
+                            id: `stream:${section}`,
+                            role: 'report',
+                            section,
+                            content: buffer,
+                            complete: true,
+                            timestamp: new Date().toISOString(),
+                        })
+                    }
+                }
+                break
+            }
+            case 'agent.tool_call':
+                // 工具调用信息不再在对话框显示，减少噪音
+                break
+            case 'agent.writing':
+                // 气泡已经表示 agent 正在撰写，不再额外发系统消息
+                break
+            case 'agent.milestone': {
+                const { stage, title, summary } = data as { stage: string; title: string; summary: string }
+                if (stage === 'final_decision') {
+                    pushAssistant(`**${title}**\n\n${summary}`)
+                }
+                break
+            }
+            default:
+                break
+        }
+    }
+
+    const streamChat = async (prompt: string, signal: AbortSignal) => {
+        await streamTradingAnalysis({
+            messages: [{ role: 'user', content: prompt }],
+            selectedAnalysts,
+            signal,
+            onEvent: (ev) => {
+                if (ev.event === 'ping') return
+                if (ev.event === 'done' || ev.data === '[DONE]') {
+                    setIsConnected(false)
+                    setIsAnalyzing(false)
+                    return
+                }
+                let data: Record<string, unknown> = {}
+                if (ev.data != null && typeof ev.data === 'object' && !Array.isArray(ev.data)) {
+                    data = ev.data as Record<string, unknown>
+                }
+                parseAndDispatch({ event: ev.event, data })
+            },
+        })
+        setIsConnected(false)
+        setIsAnalyzing(false)
+    }
+
+    const runAnalysisPrompt = async (prompt: string) => {
+        const trimmed = prompt.trim()
+        if (!trimmed || streaming) return
+
+        const customPrompt = localStorage.getItem('ta-custom-prompt')?.trim() || ''
+        const fullPrompt = customPrompt ? `${trimmed}\n\n[分析要求] ${customPrompt}` : trimmed
+
+        setInput('')
+        addChatMessage({
+            id: `${Date.now()}-${Math.random()}`,
+            role: 'user',
+            content: trimmed,
+            timestamp: new Date().toISOString(),
+        })
+
+        reset()
+        streamingReportIds.current.clear()
+        pendingAgentMsgIdsRef.current = new Set()
+        forceUpdate((n) => n + 1)
+
+        const typingId = `typing-${Date.now()}`
+        typingIndicatorIdRef.current = typingId
+        addChatMessage({
+            id: typingId,
+            role: 'assistant',
+            content: '__typing__',
+            timestamp: new Date().toISOString(),
+        })
+
+        setStreaming(true)
+        setIsAnalyzing(true)
+        setIsConnected(false)
+
+        streamAbortRef.current?.abort()
+        const ac = new AbortController()
+        streamAbortRef.current = ac
+
+        const isAbortErr = (e: unknown) =>
+            (e instanceof DOMException && e.name === 'AbortError') ||
+            (e instanceof Error && e.name === 'AbortError')
+
+        try {
+            await streamChat(fullPrompt, ac.signal)
+        } catch (error) {
+            if (typingIndicatorIdRef.current) {
+                useAnalysisStore.setState((state) => ({
+                    chatMessages: state.chatMessages.filter((m) => m.id !== typingIndicatorIdRef.current),
+                }))
+                typingIndicatorIdRef.current = null
+            }
+            if (isAbortErr(error)) {
+                pushAssistant('已手动停止分析。若后端仍在收尾，可稍后在历史报告中查看已有片段。')
+                setIsAnalyzing(false)
+                setIsConnected(false)
+            } else {
+                const errorMessage = error instanceof Error ? error.message : 'unknown error'
+                const shouldRecover = /network|fetch|stream|sse|body/i.test(errorMessage)
+                if (shouldRecover) {
+                    const recovered = await recoverInterruptedJob()
+                    if (!recovered) {
+                        pushAssistant(`请求中断：${errorMessage}\n\n后端任务可能仍在执行，请稍后到历史报告中查看结果。`)
+                    }
+                } else {
+                    pushAssistant(`请求失败：${errorMessage}`)
+                }
+                setIsAnalyzing(false)
+                setIsConnected(false)
+            }
+        } finally {
+            streamAbortRef.current = null
+            setStreaming(false)
+        }
+    }
+
+    const stopAnalysis = () => {
+        streamAbortRef.current?.abort()
+    }
+
+    const runAnalysisPromptRef = useRef(runAnalysisPrompt)
+    runAnalysisPromptRef.current = runAnalysisPrompt
+
+    useImperativeHandle(ref, () => ({
+        submitPrompt: (text: string) => {
+            void runAnalysisPromptRef.current(text)
+        },
+    }))
+
+    const handleSubmit = async (e: FormEvent) => {
+        e.preventDefault()
+        if (streaming) return
+        await runAnalysisPrompt(input)
+    }
+
+    const hasAnyReport = chatMessages.some(m => m.role === 'report')
+
+    return (
+        <aside className="card h-full min-h-0 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                    <Bot className="w-5 h-5 text-cyan-500" />
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">智能分析</h2>
+                </div>
+                <div className="flex items-center gap-2">
+                    {onShowReport && hasAnyReport && (
+                        <button
+                            onClick={() => onShowReport()}
+                            className="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-500/30 transition-colors flex items-center gap-1"
+                        >
+                            <FileText className="w-3 h-3" />
+                            查看报告
+                        </button>
+                    )}
+                    <button
+                        onClick={() => {
+                            if (window.confirm('确定要清空对话和分析结果吗？')) {
+                                clearSession()
+                            }
+                        }}
+                        disabled={streaming || isAnalyzing}
+                        className="text-xs px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-red-100 dark:hover:bg-red-500/20 hover:text-red-600 dark:hover:text-red-400 transition-colors flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-slate-100 dark:disabled:hover:bg-slate-700 disabled:hover:text-slate-500"
+                        title="清空对话"
+                    >
+                        <Trash2 className="w-3 h-3" />
+                    </button>
+                    {streaming && (
+                        <span className="badge-blue inline-flex items-center gap-1">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            分析中
+                        </span>
+                    )}
+                </div>
+            </div>
+
+            <div className="text-xs text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                示例：分析贵州茅台 600519.SH 今天走势
+            </div>
+
+            {/* 快速提示 */}
+            <div className="flex flex-wrap gap-2 mb-3">
+                {PRESET_PROMPTS.map((prompt) => (
+                    <button
+                        key={prompt}
+                        onClick={() => setInput(prompt)}
+                        className="text-xs px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-blue-400 dark:hover:border-blue-500 hover:text-slate-900 dark:hover:text-slate-200"
+                    >
+                        {prompt}
+                    </button>
+                ))}
+            </div>
+
+            {/* 分析师配置（可折叠） */}
+            <div className="mb-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                <button
+                    onClick={() => setShowConfig(!showConfig)}
+                    className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                    <div className="flex items-center gap-2">
+                        <Settings2 className="w-4 h-4 text-slate-400" />
+                        <span className="text-sm text-slate-600 dark:text-slate-400">
+                            分析类型 ({selectedAnalysts.length}/6)
+                        </span>
+                    </div>
+                    {showConfig ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                </button>
+
+                {showConfig && (
+                    <div className="p-3 bg-white dark:bg-slate-800/30">
+                        <div className="flex flex-wrap gap-2">
+                            {ANALYST_OPTIONS.map((option) => (
+                                <button
+                                    key={option.id}
+                                    onClick={() => toggleAnalyst(option.id)}
+                                    className={`px-3 py-1.5 text-xs rounded-md border transition-all ${selectedAnalysts.includes(option.id)
+                                        ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-500 text-blue-600 dark:text-blue-400'
+                                        : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-500'
+                                        }`}
+                                >
+                                    <span className="font-medium">{option.label}</span>
+                                    <span className="block opacity-70">{option.description}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* 聊天内容 */}
+            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+                {chatMessages.map((msg) => {
+                    // Report card
+                    if (msg.role === 'report' && msg.section) {
+                        return (
+                            <ReportCard
+                                key={msg.id}
+                                section={msg.section}
+                                content={msg.content}
+                                streaming={!msg.complete}
+                                onOpen={() => onShowReport?.(msg.section)}
+                            />
+                        )
+                    }
+
+                    // Status indicator（提交后立即显示，随 SSE 事件切换阶段）
+                    if (msg.content.startsWith('__')) {
+                        const c = msg.content
+                        let label = ''
+                        let icon: 'dots' | 'spin' = 'dots'
+                        let colorCls = 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500'
+
+                        if (c === '__typing__') {
+                            label = ''
+                            icon = 'dots'
+                        } else if (c === '__parsing__') {
+                            label = '正在识别标的与意图...'
+                            icon = 'spin'
+                            colorCls = 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30 text-blue-500 dark:text-blue-400'
+                        } else if (c.startsWith('__status:collecting:')) {
+                            const sym = c.replace('__status:collecting:', '').replace('__', '')
+                            label = `已识别 ${sym}，正在采集行情数据...`
+                            icon = 'spin'
+                            colorCls = 'bg-cyan-50 dark:bg-cyan-500/10 border-cyan-200 dark:border-cyan-500/30 text-cyan-500 dark:text-cyan-400'
+                        } else if (c === '__status:analyzing__') {
+                            label = '数据就绪，多智能体协作分析启动中...'
+                            icon = 'spin'
+                            colorCls = 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-500 dark:text-emerald-400'
+                        }
+
+                        return (
+                            <div key={msg.id} className="flex items-center gap-2">
+                                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs transition-colors duration-300 ${colorCls}`}>
+                                    {icon === 'spin' ? (
+                                        <>
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                                            <span className="animate-pulse">{label}</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '0ms' }} />
+                                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '150ms' }} />
+                                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '300ms' }} />
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        )
+                    }
+
+                    // Agent streaming messages → compact card with live preview
+                    const agentMeta = msg.agent ? AGENT_META_MAP[msg.agent] : null
+                    const isPending = pendingAgentMsgIdsRef.current.has(msg.id)
+                    const isCompleted = !!msg.complete
+                    const isExpanded = expandedAgentMsgId === msg.id
+
+                    if (msg.agent && agentMeta && msg.role === 'assistant') {
+                        // Extract preview text: strip markdown headers, bold, collapse whitespace
+                        const textOnly = msg.content
+                            .replace(/^#{1,4}\s+.*$/gm, '')
+                            .replace(/\*\*/g, '')
+                            .replace(/\n{2,}/g, ' ')
+                            .trim()
+                        const preview = textOnly.slice(0, 80)
+
+                        // 已完成的 agent 卡片 → 和 ReportCard 视觉统一
+                        if (isCompleted) {
+                            return (
+                                <div key={msg.id} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 overflow-hidden transition-all">
+                                    <button
+                                        onClick={() => setExpandedAgentMsgId(prev => prev === msg.id ? null : msg.id)}
+                                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:border-blue-400 dark:hover:bg-slate-800 transition-colors group"
+                                    >
+                                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${agentMeta.bgCls} shrink-0`}>
+                                            <agentMeta.Icon className={`w-4 h-4 ${agentMeta.iconCls}`} />
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-slate-700 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-300 transition-colors">{agentMeta.label}</p>
+                                            <p className="text-xs text-slate-500 truncate mt-0.5">{preview}...</p>
+                                        </div>
+                                        <ChevronRight className={`w-4 h-4 shrink-0 transition-transform ${isExpanded ? 'rotate-90 text-blue-400' : 'text-slate-500 group-hover:text-blue-400'}`} />
+                                    </button>
+                                    {isExpanded && (
+                                        <div className="px-3 pb-2 border-t border-slate-200 dark:border-slate-700/50 max-h-60 overflow-y-auto">
+                                            <div className="prose dark:prose-invert prose-xs max-w-none mt-2 text-[12px] leading-relaxed">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {msg.content}
+                                                </ReactMarkdown>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        }
+
+                        // 进行中的 agent 卡片（pending / streaming）
+                        return (
+                            <div key={msg.id} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 transition-all overflow-hidden">
+                                <button
+                                    onClick={() => !isPending && setExpandedAgentMsgId(prev => prev === msg.id ? null : msg.id)}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700/30 transition-colors"
+                                >
+                                    <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${agentMeta.bgCls} shrink-0`}>
+                                        <agentMeta.Icon className={`w-4 h-4 ${agentMeta.iconCls}`} />
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-slate-600 dark:text-slate-300">{agentMeta.label}</p>
+                                        {isPending ? (
+                                            <p className="text-[11px] text-slate-400 dark:text-slate-500 animate-pulse">正在推理分析中...</p>
+                                        ) : (
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate" dir="rtl">
+                                                <bdi>{textOnly.slice(-120) || '撰写中...'}</bdi>
+                                            </p>
+                                        )}
+                                    </div>
+                                    {isPending ? (
+                                        <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
+                                    ) : (
+                                        <span className="text-[10px] text-emerald-500 dark:text-emerald-400 font-medium shrink-0 animate-pulse">撰写中</span>
+                                    )}
+                                </button>
+                                {isExpanded && !isPending && (
+                                    <div className="px-3 pb-2 border-t border-slate-200 dark:border-slate-700/50 max-h-60 overflow-y-auto">
+                                        <div className="prose dark:prose-invert prose-xs max-w-none mt-2 text-[12px] leading-relaxed">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                {msg.content}
+                                            </ReactMarkdown>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    }
+
+                    // Normal messages (user / assistant without agent / system)
+                    return (
+                        <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                            <div
+                                className={`max-w-[92%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                                    msg.role === 'user'
+                                        ? 'bg-blue-100 dark:bg-blue-500/20 border border-blue-300 dark:border-blue-500/30 text-slate-900 dark:text-slate-100'
+                                        : msg.role === 'system'
+                                            ? 'bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 italic text-xs'
+                                            : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                                }`}
+                            >
+                                {msg.role === 'user' ? (
+                                    msg.content
+                                ) : (
+                                    <div className="prose dark:prose-invert prose-sm max-w-none">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkGfm]}
+                                            components={{
+                                                table: ({ children }) => (
+                                                    <table className="w-full border-collapse border border-slate-300 dark:border-slate-600 my-2 text-xs">{children}</table>
+                                                ),
+                                                thead: ({ children }) => (
+                                                    <thead className="bg-slate-100 dark:bg-slate-700">{children}</thead>
+                                                ),
+                                                th: ({ children }) => (
+                                                    <th className="border border-slate-300 dark:border-slate-600 px-2 py-1 text-left font-semibold text-slate-700 dark:text-slate-300">{children}</th>
+                                                ),
+                                                td: ({ children }) => (
+                                                    <td className="border border-slate-300 dark:border-slate-600 px-2 py-1 text-slate-600 dark:text-slate-400">{children}</td>
+                                                ),
+                                                tr: ({ children }) => (
+                                                    <tr className="even:bg-slate-50 dark:even:bg-slate-800/50">{children}</tr>
+                                                ),
+                                            }}
+                                        >
+                                            {msg.content}
+                                        </ReactMarkdown>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )
+                })}
+                <div ref={messagesEndRef} />
+            </div>
+
+            {/* 输入框 */}
+            <form onSubmit={handleSubmit} className="mt-3 shrink-0">
+                <div className="flex items-center gap-2">
+                    <input
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (streaming) return
+                            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                e.preventDefault()
+                                handleSubmit(e as unknown as FormEvent)
+                            }
+                        }}
+                        placeholder="直接描述你的分析需求..."
+                        className="input flex-1"
+                        disabled={streaming}
+                        title={streaming ? '分析进行中，可先点「停止」' : 'Enter 发送，Ctrl+Enter 也可发送'}
+                    />
+                    {streaming ? (
+                        <button
+                            type="button"
+                            onClick={stopAnalysis}
+                            className="px-3 py-2 inline-flex items-center gap-1 rounded-lg border border-rose-300 dark:border-rose-500/40 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-medium text-sm hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-colors"
+                            title="中断本次分析（关闭连接）"
+                        >
+                            <StopCircle className="w-4 h-4 shrink-0" />
+                            停止
+                        </button>
+                    ) : (
+                        <button
+                            type="submit"
+                            disabled={!input.trim()}
+                            className="btn-primary px-3 py-2 inline-flex items-center gap-1"
+                        >
+                            <Send className="w-4 h-4" />
+                            发送
+                        </button>
+                    )}
+                </div>
+            </form>
+        </aside>
+    )
+})
+
+export default ChatCopilotPanel

@@ -1,0 +1,86 @@
+name: CI - builder-benchmark
+
+# Benchmark runs on shared GitHub runners are noisy and were posting
+# distracting PR comments on every builder PR. The job no longer runs on
+# PRs; instead it produces a fresh baseline on every push to main (used
+# by future comparison runs) and can be invoked manually via
+# workflow_dispatch when a contributor wants to validate a perf change.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/builder/src/**"
+      - "packages/builder/bench/**"
+      - "package.json"
+      - "packages/builder/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".node-version"
+      - ".github/workflows/ci-builder-benchmark.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install wasm-pack
+        # The benchmark exercises the real build pipeline, which imports
+        # @slideglance/measure/node. Without this step the wasm dist is
+        # missing and `vitest bench` fails to resolve the import.
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      # Shared wasm dist cache — same key across every workflow.
+      - id: wasm-dist-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/core/dist
+            packages/measure/dist
+          key: wasm-dist-${{ runner.os }}-${{ hashFiles('crates/**/*.rs', 'crates/**/Cargo.toml', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'scripts/build-wasm.sh') }}
+
+      - if: steps.wasm-dist-cache.outputs.cache-hit == 'true'
+        run: |
+          find packages/core/dist packages/measure/dist -type f -exec touch {} + 2>/dev/null || true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - if: steps.wasm-dist-cache.outputs.cache-hit != 'true'
+        name: Build wasm artefacts
+        run: bash scripts/build-wasm.sh
+
+      - name: Run benchmarks
+        working-directory: packages/builder
+        run: pnpm exec vitest bench --outputJson ../../bench-results.json
+
+      - name: Save baseline to cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: bench-results.json
+          key: builder-bench-baseline-main-${{ github.sha }}

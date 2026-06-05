@@ -1,0 +1,18 @@
+{
+  "id": "ws_6633b16d",
+  "name": "osinttools",
+  "slug": "osinttools",
+  "defaults": {
+    "permissionMode": "safe",
+    "cyclablePermissionModes": [
+      "safe",
+      "allow-all"
+    ],
+    "enabledSourceSlugs": []
+  },
+  "localMcpServers": {
+    "enabled": true
+  },
+  "createdAt": 1778038630592,
+  "updatedAt": 1778038630593
+}

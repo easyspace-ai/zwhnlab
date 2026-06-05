@@ -1,0 +1,1 @@
+{"version":3,"file":"validateConnectors.d.ts","sourceRoot":"","sources":["../../src/parseXml/validateConnectors.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;;GAgBG;AAEH,OAAO,KAAK,EAAE,WAAW,EAAE,MAAM,aAAa,CAAC;AAC/C,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,mBAAmB,CAAC;AA2FpD;;;;GAIG;AACH,wBAAgB,0BAA0B,CACxC,MAAM,EAAE,WAAW,EAAE,EACrB,WAAW,EAAE,UAAU,EAAE,GACxB,IAAI,CAkCN"}

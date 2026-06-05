@@ -1,0 +1,106 @@
+name: CI - builder-vrt
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/builder/src/**"
+      - "packages/builder/vrt/**"
+      - "package.json"
+      - "packages/builder/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".node-version"
+      - "packages/builder/docker/**"
+      - ".github/workflows/ci-builder-vrt.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/builder/src/**"
+      - "packages/builder/vrt/**"
+      - "package.json"
+      - "packages/builder/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".node-version"
+      - "packages/builder/docker/**"
+      - ".github/workflows/ci-builder-vrt.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  vrt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build the @slideglance/measure (and @slideglance/core) wasm
+      # artefacts on the host before the Docker image build. The
+      # Dockerfile's `COPY . .` line pulls the freshly built `dist/`
+      # directories into the toolchain image — without this step the
+      # in-container `tsx vrt/decks/runVrt.ts` cannot resolve the
+      # `@slideglance/measure/node` import.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      # Shared wasm dist cache — same key across every workflow.
+      # The Dockerfile's COPY . . picks up whichever dist files are on
+      # the host at build time, so a cache hit propagates straight into
+      # the toolchain image.
+      - id: wasm-dist-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/core/dist
+            packages/measure/dist
+          key: wasm-dist-${{ runner.os }}-${{ hashFiles('crates/**/*.rs', 'crates/**/Cargo.toml', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'scripts/build-wasm.sh') }}
+
+      - if: steps.wasm-dist-cache.outputs.cache-hit == 'true'
+        run: |
+          find packages/core/dist packages/measure/dist -type f -exec touch {} + 2>/dev/null || true
+
+      - if: steps.wasm-dist-cache.outputs.cache-hit != 'true'
+        name: Build wasm artefacts (host-side, copied into image)
+        run: bash scripts/build-wasm.sh
+
+      - uses: docker/setup-buildx-action@v3
+      # Pre-build the toolchain image into the local Docker daemon so the
+      # subsequent `docker compose run --rm vrt` reuses it instead of
+      # triggering its own (uncached) build. The cache scope
+      # `builder-toolchain` is reusable by other builder workflows that
+      # share the same Dockerfile (LibreOffice / ImageMagick / fonts
+      # apt layer + pnpm install layer).
+      - name: Build toolchain image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/builder/docker/Dockerfile
+          tags: slideglance-builder-vrt:latest
+          load: true
+          cache-from: type=gha,scope=builder-toolchain
+          cache-to: type=gha,mode=max,scope=builder-toolchain
+      - name: Run VRT in Docker
+        working-directory: packages/builder
+        run: docker compose -f docker/docker-compose.yml run --rm vrt
+      # Diff lives at vrt/decks/output/diff/ + vrt/decks/output/actual/.
+      # The previous artifact paths (vrt/actual.png, vrt/diff.png) were
+      # never produced by runVrt.ts and silently uploaded nothing.
+      - name: Upload diff on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: builder-vrt-diff
+          path: |
+            packages/builder/vrt/decks/output/actual/
+            packages/builder/vrt/decks/output/diff/
+          if-no-files-found: ignore

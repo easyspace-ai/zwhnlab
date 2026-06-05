@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go vet *)",
+      "Bash(pnpm tsc *)",
+      "Bash(pnpm exec *)",
+      "Bash(grep -E '\\\\.\\(go|ts|tsx|json|js\\)$')",
+      "Bash(grep -n \"^import\\\\|^\\)$\" /Users/leven/space/easy/osinttools/backend/internal/infrastructure/ai/gateway/provider/provider.go)",
+      "Bash(pnpm build *)",
+      "Bash(mv /Users/leven/space/easy/osinttools/data/skills/defaults/*.json /Users/leven/space/easy/osinttools/data/skills/defaults/intelligence_analyst/)",
+      "Bash(/Users/leven/space/easy/osinttools/frontend/node_modules/.bin/tsc --noEmit)",
+      "Bash(/Users/leven/space/easy/osinttools/frontend/node_modules/.bin/tsc --noEmit -p /Users/leven/space/easy/osinttools/frontend/tsconfig.json)"
+    ],
+    "additionalDirectories": [
+      "/Users/leven/space/easy/osinttools/data/skills/defaults"
+    ]
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "themes": {
+    "midnight-exec": {
+      "label": "午夜商务",
+      "preset": "midnight-exec",
+      "primary": "1E2761",
+      "secondary": "CADCFC",
+      "accent": "F96167",
+      "bg_dark": "1E2761",
+      "bg_light": "F5F7FA",
+      "text_dark": "2C3E50",
+      "text_light": "FFFFFF",
+      "font_heading": "Microsoft YaHei",
+      "font_body": "Microsoft YaHei"
+    },
+    "tech-dark": {
+      "label": "科技深色",
+      "preset": "tech-dark",
+      "primary": "0D1117",
+      "secondary": "58A6FF",
+      "accent": "3FB950",
+      "bg_dark": "0D1117",
+      "bg_light": "F6F8FA",
+      "text_dark": "24292F",
+      "text_light": "FFFFFF",
+      "font_heading": "Microsoft YaHei",
+      "font_body": "Microsoft YaHei"
+    },
+    "coral-energy": {
+      "label": "珊瑚活力",
+      "preset": "coral-energy",
+      "primary": "F96167",
+      "secondary": "F9E795",
+      "accent": "2F3C7E",
+      "bg_dark": "2F3C7E",
+      "bg_light": "FFFAF0",
+      "text_dark": "2F3C7E",
+      "text_light": "FFFFFF",
+      "font_heading": "Microsoft YaHei",
+      "font_body": "Microsoft YaHei"
+    },
+    "forest-calm": {
+      "label": "森林静穆",
+      "preset": "forest-calm",
+      "primary": "2C5F2D",
+      "secondary": "97BC62",
+      "accent": "40916C",
+      "bg_dark": "1B4332",
+      "bg_light": "F1FAEE",
+      "text_dark": "1B4332",
+      "text_light": "FFFFFF",
+      "font_heading": "Microsoft YaHei",
+      "font_body": "Microsoft YaHei"
+    },
+    "teal-trust": {
+      "label": "青绿信赖",
+      "preset": "teal-trust",
+      "primary": "028090",
+      "secondary": "02C39A",
+      "accent": "F4A261",
+      "bg_dark": "023047",
+      "bg_light": "F8F9FA",
+      "text_dark": "023047",
+      "text_light": "FFFFFF",
+      "font_heading": "Microsoft YaHei",
+      "font_body": "Microsoft YaHei"
+    },
+    "minimal-white": {
+      "label": "极简白",
+      "preset": "minimal-white",
+      "primary": "333333",
+      "secondary": "666666",
+      "accent": "007AFF",
+      "bg_dark": "1C1C1E",
+      "bg_light": "FFFFFF",
+      "text_dark": "333333",
+      "text_light": "FFFFFF",
+      "font_heading": "Microsoft YaHei",
+      "font_body": "Microsoft YaHei"
+    }
+  }
+}

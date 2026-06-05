@@ -1,0 +1,26 @@
+# Excluded from `vsce package` (and `vsce publish`).
+# Patterns are .gitignore-style. Anything not excluded gets bundled into
+# the .vsix alongside `package.json`, `README.md`, `LICENSE`, `icon.png`,
+# `icons/**`, and `dist/**`.
+
+src/**
+.vscode/**
+node_modules/**
+
+# Build / lint configs — not needed at runtime
+esbuild.mjs
+eslint.config.mts
+vite.webview.config.ts
+tsconfig.json
+.prettierignore
+
+# Source SVG — only icon.png is referenced from package.json
+icon.svg
+
+# Source maps — debug aid only, adds ~1 MB to the vsix
+**/*.map
+
+# Member-level docs are workspace-internal and verified separately. The
+# Marketplace listing renders README.md only, so the docs/ tree (including
+# docs/assets/) does not need to ship inside the .vsix.
+docs/**
