@@ -58,7 +58,8 @@ func (h *AuthHandler) RegisterRoutes(r *gin.RouterGroup) {
 	authGroup.PATCH("/me", h.updateMe)
 	authGroup.POST("/change-password", h.changePassword)
 	authGroup.POST("/sync-cookie", h.syncCookie)
-	authGroup.POST("/renew", h.renew)
+	// renew 单独挂宽限中间件，避免临近/刚过期的 token 无法续期
+	r.POST("/renew", RenewAuthMiddleware(h.svc), h.renew)
 }
 
 type registerRequest struct {

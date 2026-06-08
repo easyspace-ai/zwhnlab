@@ -44,8 +44,6 @@ type Config struct {
 	// DashboardSessionID W6 直连会话 ID（聚合推送 + Dashboard 产物列表）
 	DashboardSessionID string
 
-	// RiverMaxWorkers River 默认队列并发 worker 数
-	RiverMaxWorkers int
 	// DashboardAggregateInterval 已合并进 XStream 周期；保留字段兼容旧配置
 	DashboardAggregateInterval time.Duration
 	// DashboardPushMinItems 定时推送：未推送新条目数须大于此值才推 W6（默认 5 → 至少 6 条）
@@ -189,7 +187,6 @@ func Load() *Config {
 		ChatCreditCost:         getEnvIntDefault("CHAT_CREDIT_COST", 1),
 		ProxyTarget:            strings.TrimSpace(getEnv("PROXY_TARGET")),
 		DashboardSessionID: strings.TrimSpace(getEnv("DASHBOARD_SESSION_ID")),
-		RiverMaxWorkers:        getEnvIntDefault("RIVER_MAX_WORKERS", 5),
 		DashboardAggregateInterval: parseDurationEnv("DASHBOARD_AGGREGATE_INTERVAL", 10*time.Minute),
 		DashboardPushMinItems:      getEnvIntDefault("DASHBOARD_PUSH_MIN_ITEMS", 5),
 		SkillsDefaultsDir:          ResolveSkillsDefaultsDir(getEnv("SKILLS_DEFAULTS_DIR")),

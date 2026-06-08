@@ -37,6 +37,22 @@ func (r *ResourceRepository) GetByResourceID(resourceID string) (*project.Resour
 	return toResourceEntity(&m), nil
 }
 
+func (r *ResourceRepository) GetByResourceIDAndSessionID(resourceID, sessionID string) (*project.Resource, error) {
+	var m ResourceModel
+	if err := r.db.Where("id = ? AND session_id = ?", resourceID, sessionID).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return toResourceEntity(&m), nil
+}
+
+func (r *ResourceRepository) DeleteByProjectIDExceptSession(projectID, sessionID string) (int64, error) {
+	res := r.db.Where(
+		"project_id = ? AND (session_id IS NULL OR session_id != ?)",
+		projectID, sessionID,
+	).Delete(&ResourceModel{})
+	return res.RowsAffected, res.Error
+}
+
 var resourceMetaColumns = []string{"id", "project_id", "session_id", "type", "name", "url", "size", "created_at"}
 
 // GetByResourceIDMeta 通过 resourceID 查询资源元数据（不含 content，避免预览时拉取大 HTML 正文）。
@@ -46,6 +62,18 @@ func (r *ResourceRepository) GetByResourceIDMeta(resourceID string) (*project.Re
 		return nil, err
 	}
 	return toResourceEntity(&m), nil
+}
+
+// UpdateResourceURL updates only the url column for a resource.
+func (r *ResourceRepository) UpdateResourceURL(projectID, resourceID, url string) error {
+	res := r.db.Model(&ResourceModel{}).Where("id = ? AND project_id = ?", resourceID, projectID).Update("url", url)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gormErrNotFound
+	}
+	return nil
 }
 
 // GetResourceContent loads only the content column for a resource.

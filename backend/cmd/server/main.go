@@ -25,6 +25,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer applog.Close()
+	slog.Info("server_config",
+		slog.String("http_port", cfg.HTTPPort),
+		slog.String("database_url", cfg.DatabaseURL),
+		slog.String("dashboard_session_id", cfg.DashboardSessionID),
+	)
 	db, err := persistence.New(cfg.DatabaseURL, cfg.GORMLogSQL)
 	if err != nil {
 		slog.Error("database_init_failed", slog.Any("err", err))
@@ -73,14 +78,14 @@ func main() {
 	sig := <-quit
 	slog.Info("shutdown_signal_received", slog.String("signal", sig.String()))
 
-	// 第二次 Ctrl+C 立即退出（避免 River 长任务导致多次按键无响应）
+	// 第二次 Ctrl+C 立即退出（避免长任务导致多次按键无响应）
 	go func() {
 		force := <-quit
 		slog.Warn("shutdown_forced", slog.String("signal", force.String()))
 		os.Exit(1)
 	}()
 
-	// 先取消 Wire 上下文：停止 River 周期任务、River UI、在途 worker 的 ctx
+	// 先取消 Wire 上下文：停止定时任务与在途同步的 ctx
 	cancel()
 
 	const shutdownBudget = 8 * time.Second
@@ -102,9 +107,9 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if wired.River != nil {
-			if err := wired.River.Stop(shutdownCtx); err != nil {
-				slog.Warn("river_stop", slog.Any("err", err))
+		if wired.Scheduler != nil {
+			if err := wired.Scheduler.Stop(shutdownCtx); err != nil {
+				slog.Warn("scheduler_stop", slog.Any("err", err))
 			}
 		}
 	}()

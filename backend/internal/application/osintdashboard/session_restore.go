@@ -10,13 +10,28 @@ import (
 
 // SessionRestoreState is returned to the dashboard UI when opening a session on a new client.
 type SessionRestoreState struct {
-	SessionID      string          `json:"session_id"`
-	SkillKey       string          `json:"skill_key,omitempty"`
-	ReportStyle    string          `json:"report_style,omitempty"`
-	SubAgentStatus string          `json:"sub_agent_status,omitempty"`
-	FollowUps      []string        `json:"follow_ups,omitempty"`
-	W6StreamActive bool            `json:"w6_stream_active"`
-	Messages       []UIMessageSnap `json:"messages,omitempty"`
+	SessionID      string            `json:"session_id"`
+	SkillKey       string            `json:"skill_key,omitempty"`
+	ReportStyle    string            `json:"report_style,omitempty"`
+	SubAgentStatus     string            `json:"sub_agent_status,omitempty"`
+	FollowUps          []string          `json:"follow_ups,omitempty"`
+	LastHTMLResourceID string            `json:"last_html_resource_id,omitempty"`
+	LastMDResourceID   string            `json:"last_md_resource_id,omitempty"`
+	W6StreamActive     bool              `json:"w6_stream_active"`
+	DiscussActive  bool              `json:"discuss_active"`
+	DiscussMode    string            `json:"discuss_mode,omitempty"`
+	Messages       []UIMessageSnap   `json:"messages,omitempty"`
+	StreamEvents   []StreamEventSnap `json:"stream_events,omitempty"`
+}
+
+// SetDiscussStatus marks a DeepSeek discuss/edit_html round as in-flight.
+func (s *Service) SetDiscussStatus(sessionID, status, mode string) error {
+	return s.workflow.SetDiscussStatus(sessionID, status, mode)
+}
+
+// ClearDiscussStatus clears the in-flight discuss marker.
+func (s *Service) ClearDiscussStatus(sessionID string) error {
+	return s.workflow.ClearDiscussStatus(sessionID)
 }
 
 // AppendDashboardUIMessage persists one chat bubble for cross-browser restore.
@@ -52,13 +67,18 @@ func (s *Service) GetSessionRestoreState(sessionID string) (*SessionRestoreState
 		messages = uiMessagesFromChatHistory(ws.ChatHistory)
 	}
 	return &SessionRestoreState{
-		SessionID:      sessionID,
-		SkillKey:       skillKey,
-		ReportStyle:    ws.ReportStyle,
-		SubAgentStatus: ws.SubAgentStatus,
-		FollowUps:      ws.FollowUps,
-		W6StreamActive: ws.SubAgentStatus == "running",
-		Messages:       messages,
+		SessionID:          sessionID,
+		SkillKey:           skillKey,
+		ReportStyle:        ws.ReportStyle,
+		SubAgentStatus:     ws.SubAgentStatus,
+		FollowUps:          ws.FollowUps,
+		LastHTMLResourceID: ws.LastHTMLResourceID,
+		LastMDResourceID:   ws.LastMDResourceID,
+		W6StreamActive:     ws.SubAgentStatus == "running",
+		DiscussActive:      ws.DiscussStatus == "running",
+		DiscussMode:        ws.DiscussMode,
+		Messages:           messages,
+		StreamEvents:       ws.StreamEvents,
 	}, nil
 }
 

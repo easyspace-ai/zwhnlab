@@ -1689,7 +1689,77 @@ func artifactURLToAbsPath(raw string) (string, bool) {
 	}
 }
 
+func htmlArtifactCacheRelPath(resource *projectdomain.Resource) string {
+	if resource == nil {
+		return ""
+	}
+	if resource.URL != nil {
+		raw := strings.TrimSpace(*resource.URL)
+		switch {
+		case strings.HasPrefix(raw, "file:"):
+			return strings.TrimPrefix(raw, "file:")
+		case strings.HasPrefix(raw, "w6-file:"):
+			return strings.TrimPrefix(raw, "w6-file:")
+		}
+	}
+	filename := strings.TrimSpace(resource.Name)
+	if filename == "" {
+		filename = resource.ID + ".html"
+	} else {
+		filename = filepath.Base(filename)
+		lower := strings.ToLower(filename)
+		if !strings.HasSuffix(lower, ".html") && !strings.HasSuffix(lower, ".htm") {
+			filename = resource.ID + ".html"
+		}
+	}
+	return filepath.Join("artifacts", resource.ProjectID, filename)
+}
+
+func writeHTMLArtifactCache(relPath string, data []byte) error {
+	relPath = strings.TrimSpace(relPath)
+	if relPath == "" || len(data) == 0 {
+		return fmt.Errorf("invalid cache path or empty content")
+	}
+	absPath, err := filepath.Abs(relPath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(absPath, data, 0644)
+}
+
+// persistHTMLArtifactToDisk writes HTML to the local artifacts directory and updates url when needed.
+func (h *ProjectHandler) persistHTMLArtifactToDisk(resource *projectdomain.Resource, data []byte) {
+	if resource == nil || len(data) == 0 {
+		return
+	}
+	relPath := htmlArtifactCacheRelPath(resource)
+	if err := writeHTMLArtifactCache(relPath, data); err != nil {
+		slog.Warn("[serveHTMLArtifactPreview] cache write failed",
+			slog.String("resource_id", resource.ID),
+			slog.String("path", relPath),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+	fileURL := "file:" + relPath
+	if resource.URL == nil || strings.TrimSpace(*resource.URL) != fileURL {
+		if err := h.resourceRepo.UpdateResourceURL(resource.ProjectID, resource.ID, fileURL); err != nil {
+			slog.Warn("[serveHTMLArtifactPreview] update url failed",
+				slog.String("resource_id", resource.ID),
+				slog.String("error", err.Error()),
+			)
+		} else {
+			resource.URL = &fileURL
+		}
+	}
+}
+
 // serveHTMLArtifactPreview serves pre-generated HTML from disk when possible (304 + cache headers).
+// When the on-disk file is missing, content is loaded once from SDK/DB, written to disk, and
+// subsequent requests read only from the cached file.
 func (h *ProjectHandler) serveHTMLArtifactPreview(c *gin.Context, resource *projectdomain.Resource) bool {
 	if resource == nil {
 		return false
@@ -1701,21 +1771,37 @@ func (h *ProjectHandler) serveHTMLArtifactPreview(c *gin.Context, resource *proj
 				return true
 			}
 		}
-		if raw := strings.TrimSpace(*resource.URL); strings.HasPrefix(raw, "source:") || strings.HasPrefix(raw, "sdk-file:") {
-			data, _, err := h.fetchArtifactBytes(c.Request.Context(), resource, resource.ID)
-			if err == nil && len(data) > 0 {
-				etag := fmt.Sprintf(`"%s"`, resource.ID)
-				serveArtifactBytesWithCache(c, data, etag, htmlPreviewContentType)
+	}
+
+	var data []byte
+	if resource.URL != nil {
+		raw := strings.TrimSpace(*resource.URL)
+		if strings.HasPrefix(raw, "source:") || strings.HasPrefix(raw, "sdk-file:") {
+			if b, _, err := h.fetchArtifactBytes(c.Request.Context(), resource, resource.ID); err == nil && len(b) > 0 {
+				data = b
+			}
+		}
+	}
+	if len(data) == 0 {
+		if content, err := h.resourceRepo.GetResourceContent(resource.ID); err == nil && content != "" {
+			data = []byte(content)
+		}
+	}
+	if len(data) == 0 {
+		return false
+	}
+
+	h.persistHTMLArtifactToDisk(resource, data)
+
+	if resource.URL != nil {
+		if absPath, ok := artifactURLToAbsPath(*resource.URL); ok {
+			if serveArtifactFileWithCache(c, absPath, htmlPreviewContentType) {
 				return true
 			}
 		}
 	}
 
-	if content, err := h.resourceRepo.GetResourceContent(resource.ID); err == nil && content != "" {
-		etag := fmt.Sprintf(`"%s"`, resource.ID)
-		serveArtifactBytesWithCache(c, []byte(content), etag, htmlPreviewContentType)
-		return true
-	}
-
-	return false
+	etag := fmt.Sprintf(`"%s"`, resource.ID)
+	serveArtifactBytesWithCache(c, data, etag, htmlPreviewContentType)
+	return true
 }

@@ -1,7 +1,9 @@
 package persistence
 
 import (
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gorm.io/driver/sqlite"
@@ -21,7 +23,7 @@ func New(databasePath string, logSQL bool) (*DB, error) {
 	if logSQL {
 		gormLogLevel = logger.Warn
 	}
-	db, err := gorm.Open(sqlite.Open(databasePath), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(sqliteDSN(databasePath)), &gorm.Config{
 		Logger: logger.Default.LogMode(gormLogLevel),
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
@@ -35,8 +37,8 @@ func New(databasePath string, logSQL bool) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetMaxOpenConns(1)
 
 	if err := RunMigrations(sqlDB); err != nil {
 		return nil, err
@@ -47,6 +49,17 @@ func New(databasePath string, logSQL bool) (*DB, error) {
 		slog.Bool("sql_log", logSQL),
 	)
 	return &DB{DB: db}, nil
+}
+
+func sqliteDSN(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return path
+	}
+	if strings.HasPrefix(path, "file:") {
+		return path
+	}
+	return fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)", path)
 }
 
 // Close 关闭连接

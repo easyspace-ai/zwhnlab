@@ -30,6 +30,8 @@ type WorkflowState struct {
 	LastMDResourceID   string            `json:"last_md_resource_id,omitempty"`
 	FunctionKey        string            `json:"function_key,omitempty"`
 	ReportStyle        string            `json:"report_style,omitempty"` // magazine | swiss | auto
+	DiscussStatus      string            `json:"discuss_status,omitempty"` // running | ""
+	DiscussMode        string            `json:"discuss_mode,omitempty"`   // discuss | edit_html
 }
 
 // StreamEventSnap is a persisted W6 SSE event (subset for replay).

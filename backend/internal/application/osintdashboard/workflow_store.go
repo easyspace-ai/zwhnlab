@@ -88,6 +88,20 @@ func (w *WorkflowStore) AppendChat(sessionID string, turns ...ai.ChatTurn) error
 	return w.save(sess, ws)
 }
 
+func (w *WorkflowStore) SetDiscussStatus(sessionID, status, mode string) error {
+	sess, ws, err := w.load(sessionID)
+	if err != nil {
+		return err
+	}
+	ws.DiscussStatus = strings.TrimSpace(status)
+	ws.DiscussMode = strings.TrimSpace(mode)
+	return w.save(sess, ws)
+}
+
+func (w *WorkflowStore) ClearDiscussStatus(sessionID string) error {
+	return w.SetDiscussStatus(sessionID, "", "")
+}
+
 func (w *WorkflowStore) AppendUIMessage(sessionID string, msg UIMessageSnap) error {
 	sess, ws, err := w.load(sessionID)
 	if err != nil {

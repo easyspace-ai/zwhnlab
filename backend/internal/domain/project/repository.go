@@ -40,11 +40,14 @@ type ResourceRepository interface {
 	// GetByResourceIDMeta returns resource metadata without the content blob (for preview).
 	GetByResourceIDMeta(resourceID string) (*Resource, error)
 	GetResourceContent(resourceID string) (string, error)
+	UpdateResourceURL(projectID, resourceID, url string) error
 	GetBySDKFileID(fileID string) (*Resource, error)
 	// GetBySDKFileIDMeta returns resource metadata without the content blob (for preview).
 	GetBySDKFileIDMeta(fileID string) (*Resource, error)
 	ListByProjectID(projectID string, resourceType *string) ([]*Resource, error)
 	ListBySessionID(sessionID string) ([]*Resource, error)
+	GetByResourceIDAndSessionID(resourceID, sessionID string) (*Resource, error)
+	DeleteByProjectIDExceptSession(projectID, sessionID string) (int64, error)
 	Update(r *Resource) error
 	Delete(projectID, resourceID string) error
 }

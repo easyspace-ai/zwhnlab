@@ -150,6 +150,16 @@ func (r *XStreamRepository) ListContentSince24h(maxRows int) ([]string, error) {
 	return out, nil
 }
 
+func (r *XStreamRepository) CountAll() (int64, error) {
+	var count int64
+	err := r.db.DB.Model(&XStreamItemModel{}).Count(&count).Error
+	return count, err
+}
+
+func (r *XStreamRepository) DeleteAll() error {
+	return r.db.DB.Where("1 = 1").Delete(&XStreamItemModel{}).Error
+}
+
 func (r *XStreamRepository) GetLatestID() (int64, error) {
 	var maxID int64
 	err := r.db.DB.Model(&XStreamItemModel{}).Select("COALESCE(MAX(remote_id), 0)").Scan(&maxID).Error

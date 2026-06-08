@@ -44,7 +44,7 @@ func (r *SessionRepository) GetByIDAndProjectID(id, projectID string) (*project.
 
 func (r *SessionRepository) ListByProjectID(projectID string, skip, limit int) ([]*project.Session, error) {
 	var list []SessionModel
-	if err := r.db.Where("project_id = ?", projectID).Order("updated_at DESC").Offset(skip).Limit(limit).Find(&list).Error; err != nil {
+	if err := r.db.Where("project_id = ?", projectID).Order("created_at DESC").Offset(skip).Limit(limit).Find(&list).Error; err != nil {
 		return nil, err
 	}
 	out := make([]*project.Session, len(list))
@@ -58,7 +58,7 @@ func (r *SessionRepository) ListByUserID(userID string, skip, limit int) ([]*pro
 	var list []SessionModel
 	if err := r.db.Joins("JOIN projects ON projects.id = sessions.project_id").
 		Where("projects.user_id = ?", userID).
-		Order("sessions.updated_at DESC").
+		Order("sessions.created_at DESC").
 		Offset(skip).Limit(limit).
 		Find(&list).Error; err != nil {
 		return nil, err

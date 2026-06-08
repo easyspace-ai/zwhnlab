@@ -27,7 +27,7 @@ import (
 	usersvc "github.com/easyspace-ai/ylmnote/internal/application/user"
 	"github.com/easyspace-ai/ylmnote/internal/config"
 	"github.com/easyspace-ai/ylmnote/internal/infrastructure/deepseek"
-	"github.com/easyspace-ai/ylmnote/internal/worker"
+	"github.com/easyspace-ai/ylmnote/internal/scheduler"
 	sdkclient "github.com/easyspace-ai/ylmnote/internal/infrastructure/ai/gateway/client"
 	sdkprovider "github.com/easyspace-ai/ylmnote/internal/infrastructure/ai/gateway/provider"
 	"github.com/easyspace-ai/ylmnote/internal/infrastructure/persistence"
@@ -35,10 +35,10 @@ import (
 	wsdk "ws-chat-tester/sdk"
 )
 
-// WireResult bundles HTTP router and River runtime for graceful shutdown.
+// WireResult bundles HTTP router and background scheduler for graceful shutdown.
 type WireResult struct {
-	Router *gin.Engine
-	River  *worker.Runtime
+	Router    *gin.Engine
+	Scheduler *scheduler.Scheduler
 }
 
 // Wire 组装路由与依赖（可后续改为 wire/codegen）
@@ -237,11 +237,6 @@ func Wire(ctx context.Context, cfg *config.Config, db *persistence.DB) (*WireRes
 	xstreamRepo := persistence.NewXStreamRepository(db)
 	xstreamFetcher := xstream.NewFetcher(xstreamRepo)
 
-	riverSQL, err := persistence.OpenRiverSQL(cfg.DatabaseURL)
-	if err != nil {
-		return nil, err
-	}
-
 	var dashboardAggregator *dashboard.AggregatorService
 	dashboardEnabled := cfg.DashboardSessionID != ""
 	if dashboardEnabled {
@@ -263,25 +258,16 @@ func Wire(ctx context.Context, cfg *config.Config, db *persistence.DB) (*WireRes
 		)
 	}
 
-	riverRuntime, err := worker.Setup(ctx, worker.Deps{
-		SQLPool:    riverSQL,
-		Fetcher:    xstreamFetcher,
-		Aggregator: dashboardAggregator,
-	}, worker.Config{
-		MaxWorkers:        cfg.RiverMaxWorkers,
-		XStreamInterval:   xstream.IntervalFromEnv(),
-		DashboardInterval: cfg.DashboardAggregateInterval,
-		DashboardEnabled:  dashboardEnabled,
-		UIPrefix:          "/jobs",
-	})
-	if err != nil {
-		return nil, err
-	}
+	sched := scheduler.New(xstreamFetcher, dashboardAggregator, xstream.IntervalFromEnv())
+	sched.Start(ctx)
 
-	xstreamHandler := NewXStreamHandler(xstreamRepo, xstreamFetcher, riverRuntime.Client)
+	xstreamHandler := NewXStreamHandler(xstreamRepo, xstreamFetcher, sched)
 	xstreamGroup := api.Group("/xstream")
 	xstreamGroup.Use(AuthMiddleware(authSvc))
 	xstreamHandler.RegisterRoutes(xstreamGroup)
+
+	adminXStreamHandler := NewAdminXStreamHandler(xstreamFetcher)
+	adminXStreamHandler.RegisterRoutes(adminGroup)
 
 	// Dashboard routes
 	dashboardRepo := persistence.NewDashboardRepository(db)
@@ -293,7 +279,7 @@ func Wire(ctx context.Context, cfg *config.Config, db *persistence.DB) (*WireRes
 		authSvc,
 		dashboardAggregator,
 		xstreamFetcher,
-		riverRuntime.Client,
+		sched,
 		wordCloudSvc,
 		resourceRepo,
 		artifactSyncer,
@@ -355,16 +341,6 @@ func Wire(ctx context.Context, cfg *config.Config, db *persistence.DB) (*WireRes
 	exportHandler.RegisterRoutes(exportGroup)
 	slog.Info("[Router] export routes registered at /api/export")
 
-	// River UI — 定时任务管理（需登录，参考 larafeed /jobs）
-	if riverRuntime.UIHandler != nil {
-		jobsGroup := r.Group("/jobs")
-		jobsGroup.Use(JobsAuthBridge(authSvc))
-		jobsGroup.Use(AuthMiddleware(authSvc))
-		jobsGroup.Any("", gin.WrapH(riverRuntime.UIHandler))
-		jobsGroup.Any("/*path", gin.WrapH(riverRuntime.UIHandler))
-		slog.Info("[Router] river ui registered at /jobs")
-	}
-
 	// WebSocket 代理端点 - 透传前端到上游 SDK 的连接
 	// 注意：不使用 AuthMiddleware，token 从 query 参数获取
 	wsHandler := NewWSHandler(rawSDKClient, authSvc, resourceRepo, sessionRepo, artifactSyncer)
@@ -374,7 +350,7 @@ func Wire(ctx context.Context, cfg *config.Config, db *persistence.DB) (*WireRes
 	slog.Info("spa_static_root", slog.String("dir", staticRoot()))
 	r.NoRoute(serveSPA)
 
-	return &WireResult{Router: r, River: riverRuntime}, nil
+	return &WireResult{Router: r, Scheduler: sched}, nil
 }
 
 var (

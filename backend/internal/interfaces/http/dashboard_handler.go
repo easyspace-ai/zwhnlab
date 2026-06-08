@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -13,12 +12,14 @@ import (
 	"github.com/easyspace-ai/ylmnote/internal/application/auth"
 	"github.com/easyspace-ai/ylmnote/internal/application/dashboard"
 	"github.com/easyspace-ai/ylmnote/internal/application/xstream"
-	"github.com/easyspace-ai/ylmnote/internal/worker"
 	projectdomain "github.com/easyspace-ai/ylmnote/internal/domain/project"
 	"github.com/easyspace-ai/ylmnote/internal/infrastructure/persistence"
+	"github.com/easyspace-ai/ylmnote/internal/scheduler"
 	"github.com/gin-gonic/gin"
-	"github.com/riverqueue/river"
 )
+
+// dashboardArtifactProjectID matches artifact.Syncer W6 direct session storage scope.
+const dashboardArtifactProjectID = "w6-direct"
 
 // DashboardHandler handles dashboard HTTP endpoints.
 type DashboardHandler struct {
@@ -26,7 +27,7 @@ type DashboardHandler struct {
 	authSvc            *auth.Service
 	aggregator         *dashboard.AggregatorService
 	xstreamFetcher     *xstream.Fetcher
-	riverClient        *river.Client[*sql.Tx]
+	sched              *scheduler.Scheduler
 	wordCloud          *dashboard.WordCloudService
 	resourceRepo       projectdomain.ResourceRepository
 	artifactSyncer     *artifact.Syncer
@@ -38,7 +39,7 @@ func NewDashboardHandler(
 	authSvc *auth.Service,
 	aggregator *dashboard.AggregatorService,
 	xstreamFetcher *xstream.Fetcher,
-	riverClient *river.Client[*sql.Tx],
+	sched *scheduler.Scheduler,
 	wordCloud *dashboard.WordCloudService,
 	resourceRepo projectdomain.ResourceRepository,
 	artifactSyncer *artifact.Syncer,
@@ -49,7 +50,7 @@ func NewDashboardHandler(
 		authSvc:            authSvc,
 		aggregator:         aggregator,
 		xstreamFetcher:     xstreamFetcher,
-		riverClient:        riverClient,
+		sched:              sched,
 		wordCloud:          wordCloud,
 		resourceRepo:       resourceRepo,
 		artifactSyncer:     artifactSyncer,
@@ -295,10 +296,31 @@ func (h *DashboardHandler) ArtifactsSyncPOST(c *gin.Context) {
 	})
 }
 
+func (h *DashboardHandler) purgeStaleDashboardArtifacts() {
+	if h.resourceRepo == nil || h.dashboardSessionID == "" {
+		return
+	}
+	n, err := h.resourceRepo.DeleteByProjectIDExceptSession(dashboardArtifactProjectID, h.dashboardSessionID)
+	if err != nil {
+		slog.Warn("[dashboard-artifacts] purge stale failed",
+			slog.String("session_id", h.dashboardSessionID),
+			slog.Any("err", err),
+		)
+		return
+	}
+	if n > 0 {
+		slog.Info("[dashboard-artifacts] purged stale session cache",
+			slog.String("session_id", h.dashboardSessionID),
+			slog.Int64("deleted", n),
+		)
+	}
+}
+
 func (h *DashboardHandler) syncArtifactsFromRemote(c *gin.Context) error {
 	if h.artifactSyncer == nil {
 		return nil
 	}
+	h.purgeStaleDashboardArtifacts()
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Minute)
 	defer cancel()
 	_, err := h.artifactSyncer.SyncFromAgentMessages(ctx, h.dashboardSessionID)
@@ -382,6 +404,31 @@ func (h *DashboardHandler) ScoredContentGET(c *gin.Context) {
 	c.JSON(http.StatusOK, content)
 }
 
+// SyncPOST pulls the latest upstream page into the local DB.
+func (h *DashboardHandler) SyncPOST(c *gin.Context) {
+	if h.xstreamFetcher == nil && h.sched == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "xstream fetcher not configured"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+	defer cancel()
+
+	if h.sched != nil {
+		if err := h.sched.RunXStreamSync(ctx); err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "fetched", "mode": "scheduler"})
+		return
+	}
+
+	if err := h.xstreamFetcher.FetchOnce(ctx); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "fetched", "mode": "direct"})
+}
+
 // AggregatorTriggerPOST manually triggers the aggregator to run.
 func (h *DashboardHandler) AggregatorTriggerPOST(c *gin.Context) {
 	requestID := RequestIDFromContext(c.Request.Context())
@@ -398,7 +445,7 @@ func (h *DashboardHandler) AggregatorTriggerPOST(c *gin.Context) {
 		return
 	}
 
-	if h.aggregator == nil || h.riverClient == nil {
+	if h.aggregator == nil || h.sched == nil {
 		slog.Warn("[dashboard-push] manual trigger rejected: aggregator not configured",
 			slog.String("request_id", requestID),
 		)
@@ -406,18 +453,18 @@ func (h *DashboardHandler) AggregatorTriggerPOST(c *gin.Context) {
 		return
 	}
 
-	if _, err := h.riverClient.Insert(c.Request.Context(), worker.DashboardAggregateArgs{
-		Source: string(dashboard.RunSourceManual),
-	}, worker.ManualDashboardInsertOpts()); err != nil {
-		slog.Error("[dashboard-push] manual trigger enqueue failed",
-			slog.String("request_id", requestID),
-			slog.Any("err", err),
-		)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if err := h.sched.RunDashboardAggregate(ctx, dashboard.RunSourceManual, true); err != nil {
+			slog.Error("[dashboard-push] manual trigger failed",
+				slog.String("request_id", requestID),
+				slog.Any("err", err),
+			)
+		}
+	}()
 
-	slog.Info("[dashboard-push] manual trigger accepted, job queued (see logs: [dashboard-push] + [session-send])",
+	slog.Info("[dashboard-push] manual trigger accepted (see logs: [dashboard-push] + [session-send])",
 		slog.String("request_id", requestID),
 		slog.String("session_id", h.dashboardSessionID),
 		slog.Bool("force", true),
@@ -487,6 +534,7 @@ func (h *DashboardHandler) ItemsSearchGET(c *gin.Context) {
 
 func (h *DashboardHandler) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/stream-groups", h.StreamGroupsGET)
+	g.POST("/sync", h.SyncPOST)
 	g.GET("/items", h.ItemsGET)
 	g.GET("/items/search", h.ItemsSearchGET)
 	g.POST("/items/backfill", h.ItemsBackfillPOST)

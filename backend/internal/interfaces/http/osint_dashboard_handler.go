@@ -94,6 +94,7 @@ func (h *OsintDashboardHandler) chatStart(c *gin.Context) {
 	if !ok {
 		return
 	}
+	emitSessionTitleSSE(writeSSE, sessionID, topic)
 	ctx := c.Request.Context()
 	writeSSE(osintdashboard.ChatSSEEvent{"type": "phase", "phase": "init", "message": "正在初始化会话..."})
 	writeSSE(osintdashboard.ChatSSEEvent{"type": "phase", "phase": "w6", "message": "正在连接 W6 服务..."})
@@ -143,12 +144,15 @@ func (h *OsintDashboardHandler) chatMessage(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
+	topic := message
+	if title, updated, err := h.svc.UpdateSessionTitleIfAuto(sessionID, topic); err == nil && updated {
+		emitSessionTitleSSE(writeSSE, sessionID, title)
+	}
 	writeSSE(osintdashboard.ChatSSEEvent{"type": "phase", "phase": "w6", "message": "已收到追问，正在启动 W6 子 Agent…"})
 	prefix := "\n\n已根据您的问题启动新一轮 W6 调研。\n\n"
 	writeSSE(osintdashboard.ChatSSEEvent{"type": "text_delta", "delta": prefix})
 	_ = h.svc.AppendDashboardUIMessage(sessionID, "user", message, nil)
 
-	topic := message
 	if len([]rune(topic)) > 120 {
 		topic = string([]rune(topic)[:120])
 	}
@@ -257,30 +261,45 @@ func (h *OsintDashboardHandler) chatDiscuss(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"detail": "session not found or access denied"})
 		return
 	}
-	var (
-		result *osintdashboard.DiscussResult
-		err    error
-	)
+
+	discussMode := "discuss"
 	if targetID != "" || mode == "edit_html" {
+		discussMode = "edit_html"
 		if targetID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"detail": "target_resource_id required for edit_html mode"})
 			return
 		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), h.editHTMLTimeout)
-		defer cancel()
-		result, err = h.svc.EditReportHTML(ctx, sessionID, targetID, message)
-	} else {
-		result, err = h.svc.Discuss(c.Request.Context(), sessionID, message)
 	}
+
+	// Persist user bubble immediately so refresh can restore it.
+	_ = h.svc.AppendDashboardUIMessage(sessionID, "user", message, nil)
+	_ = h.svc.SetDiscussStatus(sessionID, "running", discussMode)
+
+	// Detached from the HTTP request — survives page refresh / client disconnect.
+	workCtx, workCancel := context.WithTimeout(context.Background(), h.editHTMLTimeout)
+	defer workCancel()
+
+	var (
+		result *osintdashboard.DiscussResult
+		err    error
+	)
+	if discussMode == "edit_html" {
+		result, err = h.svc.EditReportHTML(workCtx, sessionID, targetID, message)
+	} else {
+		result, err = h.svc.Discuss(workCtx, sessionID, message)
+	}
+
+	_ = h.svc.ClearDiscussStatus(sessionID)
+
 	if err != nil {
 		detail := err.Error()
-		if targetID != "" || mode == "edit_html" {
+		if discussMode == "edit_html" {
 			detail = ai.UserFacingError(err)
 		}
+		_ = h.svc.AppendDashboardUIMessage(sessionID, "assistant", "❌ "+detail, nil)
 		c.JSON(http.StatusBadRequest, gin.H{"detail": detail})
 		return
 	}
-	_ = h.svc.AppendDashboardUIMessage(sessionID, "user", message, nil)
 	_ = h.svc.AppendDashboardUIMessage(sessionID, "assistant", result.Reply, nil)
 	out := gin.H{"reply": result.Reply}
 	if result.Edited && result.HTMLResourceID != "" {
@@ -463,6 +482,22 @@ func stripW6CommandPrefix(s string) string {
 		return t
 	}
 	return strings.TrimSpace(t[3:])
+}
+
+func emitSessionTitleSSE(
+	writeSSE func(osintdashboard.ChatSSEEvent),
+	sessionID string,
+	title string,
+) {
+	title = osintdashboard.TruncateSessionTitle(title, 0)
+	if title == "" {
+		return
+	}
+	writeSSE(osintdashboard.ChatSSEEvent{
+		"type":      "session_title",
+		"title":     title,
+		"sessionId": sessionID,
+	})
 }
 
 func extractTopic(formData map[string]interface{}, fallback string) string {

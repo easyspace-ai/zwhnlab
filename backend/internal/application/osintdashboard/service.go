@@ -292,7 +292,7 @@ func (s *Service) ListSessionReports(sessionID string) ([]*domainproject.Resourc
 	return out, nil
 }
 
-// UpdateSessionSkill persists skill_key on session.
+// UpdateSessionSkill persists skill_key on session and may auto-set the title from W6 topic.
 func (s *Service) UpdateSessionSkill(sessionID, skillKey, title string) error {
 	sess, err := s.sessions.GetByID(sessionID)
 	if err != nil {
@@ -302,12 +302,13 @@ func (s *Service) UpdateSessionSkill(sessionID, skillKey, title string) error {
 	if k != "" {
 		sess.SkillKey = &k
 	}
-	if strings.TrimSpace(title) != "" {
-		sess.Title = strings.TrimSpace(title)
-	}
 	sess.UpdatedAt = time.Now().UTC()
 	if err := s.sessions.Update(sess); err != nil {
 		return err
 	}
-	return s.workflow.SetSkillKey(sessionID, k)
+	if err := s.workflow.SetSkillKey(sessionID, k); err != nil {
+		return err
+	}
+	_, _, err = s.UpdateSessionTitleIfAuto(sessionID, title)
+	return err
 }

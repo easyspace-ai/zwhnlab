@@ -209,7 +209,7 @@ func (s *Syncer) processResource(projectID, sessionID, storageScope string, reso
 	var existing *project.Resource
 	var err error
 	if useResourceIDLookup {
-		existing, err = s.resourceRepo.GetByResourceID(resourceID)
+		existing, err = s.resourceRepo.GetByResourceIDAndSessionID(resourceID, sessionID)
 	} else {
 		existing, err = s.resourceRepo.GetByID(projectID, resourceID)
 	}
