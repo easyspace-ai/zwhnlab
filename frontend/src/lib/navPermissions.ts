@@ -5,6 +5,7 @@ export const NAV_PERMISSION_KEYS = {
   dashboard: 'menu_dashboard',
   aiSession: 'menu_ai_session',
   osintDashboard: 'menu_osint_dashboard',
+  aichat: 'menu_aichat',
   ppt: 'menu_ppt',
   admin: 'menu_admin',
 } as const

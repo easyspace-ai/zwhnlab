@@ -27,6 +27,7 @@ import { PptxgenjsRouteShell } from "./features/pptxgenjs/PptxgenjsRouteShell";
 import { SlideglanceRouteShell } from "./features/slideglance/SlideglanceRouteShell";
 import { OsintSessionRouteShell } from "./features/osint/OsintSessionRouteShell";
 import { OsintDashboardRouteShell } from "./features/osint-dashboard/OsintDashboardRouteShell";
+import { AiChatRouteShell } from "./features/aichat/AiChatRouteShell";
 import { useAuth } from "./contexts/AuthContext";
 import { getOsintAccessToken, isTokenExpired } from "@/osint/auth";
 import { fetchAuthConfig } from "./lib/authApi";
@@ -223,6 +224,14 @@ function AppShell() {
                     element={
                       <RequireNavPermission permission={NAV_PERMISSION_KEYS.osintDashboard}>
                         <OsintDashboardRouteShell />
+                      </RequireNavPermission>
+                    }
+                  />
+                  <Route
+                    path="/aichat/*"
+                    element={
+                      <RequireNavPermission permission={NAV_PERMISSION_KEYS.aichat}>
+                        <AiChatRouteShell />
                       </RequireNavPermission>
                     }
                   />

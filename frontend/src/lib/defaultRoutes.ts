@@ -9,6 +9,7 @@ export const PERMISSION_HOME_ROUTES: ReadonlyArray<{ permission: string; path: s
   { permission: 'menu_xstream', path: '/x-stream' },
   { permission: 'menu_dashboard', path: '/dashboard' },
   { permission: 'menu_ai_session', path: '/ai-session' },
+  { permission: 'menu_aichat', path: '/aichat' },
   { permission: 'menu_osint_dashboard', path: '/osint-dashboard' },
   { permission: 'menu_ppt', path: '/ppt' },
   { permission: 'menu_admin', path: '/admin' },

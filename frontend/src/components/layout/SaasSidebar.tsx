@@ -78,11 +78,19 @@ const NAV_ITEMS: NavItemConfig[] = [
   //   permission: NAV_PERMISSION_KEYS.aiSession,
   // },
   {
+    id: "aichat",
+    to: "/aichat",
+    icon: MessagesSquare,
+    label: "AI 研究",
+    description: "事件驱动调研工作台",
+    permission: NAV_PERMISSION_KEYS.aichat,
+  },
+  {
     id: "osint-dashboard",
     to: "/osint-dashboard",
     icon: ShieldCheck,
     label: "情报研究",
-    description: "W6 调研与报告画布",
+    description: "W6 调研与报告画布（旧版）",
     permission: NAV_PERMISSION_KEYS.osintDashboard,
   },
   {
