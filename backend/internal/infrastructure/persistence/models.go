@@ -79,8 +79,9 @@ type SessionModel struct {
 	ProjectID     string    `gorm:"index;not null"`
 	Title         string    `gorm:"not null"`
 	SkillKey      *string   `gorm:"size:64"`
-	WorkflowState string    `gorm:"type:text"`
-	CreatedAt     time.Time `gorm:"not null"`
+	WorkflowState       string    `gorm:"type:text"`
+	ConversationEvents  string    `gorm:"type:text"`
+	CreatedAt           time.Time `gorm:"not null"`
 	UpdatedAt     time.Time `gorm:"not null"`
 }
 

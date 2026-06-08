@@ -95,7 +95,7 @@ type updateMeRequest struct {
 func (h *AuthHandler) permissionsFor(u *user.User) []string {
 	if u.IsAdmin() {
 		return []string{
-			"menu_admin", "menu_polymarket", "menu_xstream", "menu_dashboard", "menu_ai_session", "menu_ppt", "menu_osint_dashboard",
+			"menu_admin", "menu_polymarket", "menu_xstream", "menu_dashboard", "menu_ai_session", "menu_ppt", "menu_aichat", "menu_osint_dashboard",
 			"user_manage", "role_manage", "skill_group_manage",
 		}
 	}

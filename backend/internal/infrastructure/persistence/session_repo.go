@@ -92,8 +92,9 @@ func toSessionModel(s *project.Session) *SessionModel {
 		ProjectID:     s.ProjectID,
 		Title:         s.Title,
 		SkillKey:      s.SkillKey,
-		WorkflowState: s.WorkflowState,
-		CreatedAt:     s.CreatedAt,
+		WorkflowState:      s.WorkflowState,
+		ConversationEvents: s.ConversationEvents,
+		CreatedAt:          s.CreatedAt,
 		UpdatedAt:     s.UpdatedAt,
 	}
 }
@@ -104,8 +105,9 @@ func toSessionEntity(m *SessionModel) *project.Session {
 		ProjectID:     m.ProjectID,
 		Title:         m.Title,
 		SkillKey:      m.SkillKey,
-		WorkflowState: m.WorkflowState,
-		CreatedAt:     m.CreatedAt,
+		WorkflowState:      m.WorkflowState,
+		ConversationEvents: m.ConversationEvents,
+		CreatedAt:          m.CreatedAt,
 		UpdatedAt:     m.UpdatedAt,
 	}
 }

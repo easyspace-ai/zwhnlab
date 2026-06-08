@@ -96,7 +96,7 @@ func (r *RoleRepository) ensureDefaultRole() error {
 		ID:          "role_admin",
 		Name:        "超级管理员",
 		Description: strPtr("系统超级管理员，拥有所有权限"),
-		Permissions: JSONSlice{"menu_admin", "user_manage", "role_manage", "skill_group_manage", "menu_osint_dashboard"},
+		Permissions: JSONSlice{"menu_admin", "user_manage", "role_manage", "skill_group_manage", "menu_aichat", "menu_osint_dashboard"},
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}).Error

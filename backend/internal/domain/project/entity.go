@@ -20,8 +20,9 @@ type Session struct {
 	ProjectID     string
 	Title         string
 	SkillKey      *string
-	WorkflowState string // JSON blob; parse via osintdashboard.ParseWorkflowState
-	CreatedAt     time.Time
+	WorkflowState       string // JSON blob; parse via osintdashboard.ParseWorkflowState
+	ConversationEvents  string // JSON blob; parse via aichat.ParseConversationState
+	CreatedAt           time.Time
 	UpdatedAt     time.Time
 }
 

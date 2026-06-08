@@ -21,6 +21,7 @@ import (
 	skillgroupsvc "github.com/easyspace-ai/ylmnote/internal/application/skillgroup"
 	"github.com/easyspace-ai/ylmnote/internal/application/xstream"
 	intelligencesvc "github.com/easyspace-ai/ylmnote/internal/application/intelligence"
+	"github.com/easyspace-ai/ylmnote/internal/application/aichat"
 	"github.com/easyspace-ai/ylmnote/internal/application/osintdashboard"
 	"github.com/easyspace-ai/ylmnote/internal/application/project"
 	"github.com/easyspace-ai/ylmnote/internal/application/skill"
@@ -326,6 +327,13 @@ func Wire(ctx context.Context, cfg *config.Config, db *persistence.DB) (*WireRes
 	osintDashboardGroup.Use(AuthMiddleware(authSvc))
 	osintDashboardHandler.RegisterRoutes(osintDashboardGroup)
 	slog.Info("[Router] osint-dashboard routes registered at /api/osint-dashboard")
+
+	aichatSvc := aichat.NewService(sessionRepo, osintDashboardSvc)
+	aichatHandler := NewAichatHandler(aichatSvc)
+	aichatGroup := api.Group("/aichat")
+	aichatGroup.Use(AuthMiddleware(authSvc))
+	aichatHandler.RegisterRoutes(aichatGroup)
+	slog.Info("[Router] aichat routes registered at /api/aichat")
 
 	// Export / reflow routes
 	llmClient := deepseek.NewClient(deepseek.Config{
