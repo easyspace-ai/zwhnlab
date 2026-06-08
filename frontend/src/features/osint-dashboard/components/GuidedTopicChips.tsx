@@ -1,9 +1,8 @@
-import type { GuidedTopic } from '../lib/guidedTopics'
+import type { GuidedTopicSnap } from '../types'
 
 type GuidedTopicChipsProps = {
-  w6Topics: GuidedTopic[]
-  discussTopics?: GuidedTopic[]
-  onSelect: (topic: GuidedTopic) => void
+  topics: GuidedTopicSnap[]
+  onSelect: (topic: GuidedTopicSnap) => void
   disabled?: boolean
 }
 
@@ -12,8 +11,8 @@ function TopicChip({
   onSelect,
   disabled,
 }: {
-  topic: GuidedTopic
-  onSelect: (topic: GuidedTopic) => void
+  topic: GuidedTopicSnap
+  onSelect: (topic: GuidedTopicSnap) => void
   disabled?: boolean
 }) {
   return (
@@ -29,51 +28,19 @@ function TopicChip({
   )
 }
 
-export function GuidedTopicChips({
-  w6Topics,
-  discussTopics = [],
-  onSelect,
-  disabled,
-}: GuidedTopicChipsProps) {
-  if (!w6Topics.length && !discussTopics.length) return null
+export function GuidedTopicChips({ topics, onSelect, disabled }: GuidedTopicChipsProps) {
+  if (!topics.length) return null
 
   return (
-    <div className="mb-2 space-y-2">
-      {w6Topics.length > 0 ? (
-        <div>
-          <div className="mb-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
-            深度调研
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {w6Topics.map((topic) => (
-              <TopicChip
-                key={`w6-${topic.text}`}
-                topic={topic}
-                onSelect={onSelect}
-                disabled={disabled}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {discussTopics.length > 0 ? (
-        <div>
-          <div className="mb-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
-            报告调整
-            <span className="ml-1 font-normal text-slate-400 dark:text-slate-500">（改版式 / 讨论）</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {discussTopics.map((topic) => (
-              <TopicChip
-                key={`discuss-${topic.text}`}
-                topic={topic}
-                onSelect={onSelect}
-                disabled={disabled}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
+    <div className="flex flex-wrap gap-1.5">
+      {topics.map((topic) => (
+        <TopicChip
+          key={topic.text}
+          topic={topic}
+          onSelect={onSelect}
+          disabled={disabled}
+        />
+      ))}
     </div>
   )
 }

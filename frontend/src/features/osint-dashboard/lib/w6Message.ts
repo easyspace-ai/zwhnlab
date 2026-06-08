@@ -37,3 +37,17 @@ export function buildW6StartUserContent(
   const summary = buildW6FormSummary(formData)
   return formatW6UserBubble(`执行：${skillName}${summary ? `\n${summary}` : ''}`)
 }
+
+/** Normalize W6 user bubbles: strip `@w6` tag and sort param lines for dedup. */
+export function normalizeW6UserContent(content: string): string {
+  const body = stripW6Prefix(content.trim())
+  const lines = body.split('\n').map((line) => line.trim()).filter(Boolean)
+  if (lines.length <= 1) return body
+  const header = lines[0]
+  const params = lines.slice(1).sort()
+  return [header, ...params].join('\n')
+}
+
+export function isSameW6UserContent(a: string, b: string): boolean {
+  return normalizeW6UserContent(a) === normalizeW6UserContent(b)
+}

@@ -59,6 +59,19 @@ export interface ScoredContent {
   date: string
 }
 
+/** 从上游拉取最新一页并写入本地 DB，再刷新页面数据 */
+export async function syncDashboardStream(): Promise<{ status: string; mode?: string }> {
+  const response = await fetch(`${DASHBOARD_V1}/sync`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error((err as { error?: string }).error || 'Failed to sync dashboard stream')
+  }
+  return response.json()
+}
+
 export async function fetchDashboardItems(
   type: string,
   offset = 0,

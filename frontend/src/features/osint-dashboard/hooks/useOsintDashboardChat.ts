@@ -3,11 +3,13 @@ import type {
   DashboardChatMessage,
   DashboardSSEEvent,
   DashboardReportItem,
+  FormSchema,
+  GuidedTopicSnap,
   W6MessageStatus,
   W6StreamEvent,
 } from '../types'
 import type { SubAgentStatus } from './useSubAgentStream'
-import type { IntelligenceSkill } from '@/osint/types'
+import type { FormField, IntelligenceSkill } from '@/osint/types'
 import { isW6SkillKey } from '../types'
 import {
   buildChatDiscussBody,
@@ -26,8 +28,8 @@ import {
 } from '../lib/osintDashboardApi'
 import {
   buildW6FormSummary,
-  buildW6StartUserContent,
   formatW6UserBubble,
+  isSameW6UserContent,
   isW6PrefixedMessage,
   stripW6Prefix,
 } from '../lib/w6Message'
@@ -36,11 +38,45 @@ import {
   saveSessionSnapshot,
   type PersistedDashboardSession,
 } from '../lib/dashboardSessionCache'
+import {
+  finalizeSessionMessages,
+  mergeSessionMessages,
+  mergeSessionMessagesRaw,
+} from '../lib/sessionMessageMerge'
+import {
+  createW6IdleTracker,
+  dedupeRunningW6Chips,
+  findLastRunningW6Id,
+  findLastW6Index,
+  hasLiveW6Activity,
+  isW6RoundCompleteOnServer,
+  isW6RunningOnServer,
+  mapServerStreamEvents,
+  observeSubAgentStatus,
+  sealAbandonedRunningW6,
+  sealW6MessageStatuses,
+  shouldTreatW6RoundEnded,
+  syncW6MessagesWithServerState,
+  touchW6StreamActivity,
+  type W6IdleTracker,
+} from '../lib/w6SessionState'
 import { isReportEditIntent } from '../lib/reportEditIntent'
+import { repairConversationOrder } from '../lib/conversationOrder'
+import { resolveReportItemTitle } from '../lib/reportTitleDisplay'
+import {
+  deriveSessionTitleFromFormData,
+  deriveW6SessionTitle,
+  isAutoSessionTitle,
+  truncateSessionTitle,
+} from '../lib/sessionTitleSync'
 
 let msgCounter = 0
 function genId() {
   return `msg-${++msgCounter}-${Date.now()}`
+}
+
+function guidedTopicsFingerprint(topics: GuidedTopicSnap[]): string {
+  return topics.map((t) => t.text).join('\0')
 }
 
 function mapServerMessages(
@@ -59,11 +95,12 @@ function mapServerMessages(
           ? row.role
           : 'assistant'
       ) as DashboardChatMessage['role']
+      const baseTs = Date.now() - rows.length * 1000
       return {
-        id: `srv-${index}-${row.timestamp ?? Date.now()}`,
+        id: `srv-${index}-${row.timestamp ?? baseTs + index}`,
         role,
         content: row.content,
-        timestamp: row.timestamp ?? Date.now(),
+        timestamp: row.timestamp && row.timestamp > 0 ? row.timestamp : baseTs + index,
         followUpQuestions: row.follow_up_questions ?? null,
         ...(role === 'w6'
           ? {
@@ -84,6 +121,7 @@ function buildHtmlReportItem(
   resourceId: string,
   title: string,
   suffix: string,
+  markdown?: string,
 ): DashboardReportItem {
   const previewUrl = resolveReportPreviewUrl(resourceId)
   return {
@@ -93,6 +131,7 @@ function buildHtmlReportItem(
     title,
     timestamp: Date.now(),
     kind: 'html',
+    markdown,
   }
 }
 
@@ -124,7 +163,7 @@ async function loadReportsForSession(sessionId: string): Promise<{
   }
   const loaded = serverReports.map((r, i) => {
     const resourceId = extractArtifactResourceId(r.url || r.id)
-    const title = r.title || '报告'
+    const title = resolveReportItemTitle(undefined, r.title || '报告')
     if (isMarkdownReportType(r.type)) {
       return buildMarkdownReportItem(resourceId, title, `r${i}`)
     }
@@ -179,19 +218,21 @@ function applyPersisted(
   }
 }
 
+export type SessionTitleSyncOptions = {
+  getSessionTitle?: (sessionId: string) => string | undefined
+  syncSessionTitle?: (sessionId: string, title: string) => void | Promise<void>
+}
+
 export function useOsintDashboardChat(
   userId: string | undefined,
   intelligenceSkills: IntelligenceSkill[] = [],
+  sessionTitleSync?: SessionTitleSyncOptions,
 ) {
   const [messages, setMessages] = useState<DashboardChatMessage[]>([])
   const [reports, setReports] = useState<DashboardReportItem[]>([])
   const [activeReportId, setActiveReportId] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentPhase, setCurrentPhase] = useState('')
-  const [currentForm, setCurrentForm] = useState<{
-    schema: { fields: import('@/osint/types').FormField[] }
-    message: string
-  } | null>(null)
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [w6StreamEnabled, setW6StreamEnabled] = useState(false)
@@ -205,12 +246,121 @@ export function useOsintDashboardChat(
   const sessionIdRef = useRef<string | null>(null)
   const skillKeyRef = useRef<string | null>(null)
   const pendingMarkdownRef = useRef<{ markdown: string; title?: string } | null>(null)
+  const discussPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const restoreGenRef = useRef(0)
+  const restoringSessionRef = useRef<string | null>(null)
+  const w6IdleTrackerRef = useRef<W6IdleTracker>(createW6IdleTracker())
+  const w6StreamAttachRef = useRef<string | null>(null)
+  const messagesRef = useRef<DashboardChatMessage[]>([])
   const [activeW6MessageId, setActiveW6MessageId] = useState<string | null>(null)
+  const sessionTitleSyncRef = useRef(sessionTitleSync)
+  sessionTitleSyncRef.current = sessionTitleSync
+
+  const observeServerW6Status = useCallback((server: SessionRestoreState | null) => {
+    if (!server) return
+    w6IdleTrackerRef.current = observeSubAgentStatus(
+      w6IdleTrackerRef.current,
+      server.sub_agent_status,
+    )
+  }, [])
+
+  const attachW6StreamIfNeeded = useCallback((liveW6Id: string | null, needsStream: boolean) => {
+    if (!needsStream || !liveW6Id) {
+      w6StreamAttachRef.current = null
+      setW6StreamEnabled(false)
+      return
+    }
+    setW6StreamEnabled(true)
+    if (w6StreamAttachRef.current !== liveW6Id) {
+      w6StreamAttachRef.current = liveW6Id
+      setW6StreamRound((n) => n + 1)
+    }
+  }, [])
+
+  const sealActiveW6FromIdle = useCallback((events: W6StreamEvent[] = []) => {
+    const id = activeW6MessageIdRef.current
+    if (!id) return false
+    setMessages((prev) => {
+      const updated = prev.map((m) =>
+        m.id === id && m.role === 'w6' && m.w6Status === 'running'
+          ? {
+              ...m,
+              w6Status: 'done' as W6MessageStatus,
+              w6Events: events.length > 0 ? events : m.w6Events,
+              w6LastLine: m.w6LastLine || '调研完成',
+            }
+          : m,
+      )
+      return sealW6MessageStatuses(updated, null)
+    })
+    activeW6MessageIdRef.current = ''
+    setActiveW6MessageId(null)
+    w6StreamAttachRef.current = null
+    setW6StreamEnabled(false)
+    return true
+  }, [])
+
+  const applySessionTitle = useCallback((targetSessionId: string, rawTitle: string) => {
+    const title = truncateSessionTitle(rawTitle)
+    if (!title) return
+    const sync = sessionTitleSyncRef.current
+    const current = sync?.getSessionTitle?.(targetSessionId)
+    if (current != null && !isAutoSessionTitle(current)) return
+    void sync?.syncSessionTitle?.(targetSessionId, title)
+  }, [])
+
+  const stopDiscussPoll = useCallback(() => {
+    if (discussPollRef.current) {
+      clearInterval(discussPollRef.current)
+      discussPollRef.current = null
+    }
+  }, [])
+
+  const startDiscussPoll = useCallback(
+    (targetSessionId: string, saved: PersistedDashboardSession | null) => {
+      stopDiscussPoll()
+      discussPollRef.current = setInterval(() => {
+        void (async () => {
+          try {
+            if (sessionIdRef.current !== targetSessionId) {
+              stopDiscussPoll()
+              return
+            }
+            const state = await fetchSessionRestoreState(targetSessionId)
+            if (sessionIdRef.current !== targetSessionId) return
+            if (!state?.discuss_active) {
+              stopDiscussPoll()
+              const serverMsgs = mapServerMessages(state ?? { messages: [] })
+              const merged = mergeSessionMessages(serverMsgs, saved?.messages ?? [])
+              setMessages(finalizeSessionMessages(merged))
+              setFollowUpQuestions(state?.follow_ups ?? [])
+              setIsStreaming(false)
+              setCurrentPhase('')
+              try {
+                const { reports: loadedReports, activeReportId: loadedActiveId } =
+                  await loadReportsForSession(targetSessionId)
+                if (loadedReports.length > 0) {
+                  setReports(loadedReports)
+                  setActiveReportId(loadedActiveId)
+                }
+              } catch {
+                /* offline */
+              }
+            }
+          } catch {
+            /* offline */
+          }
+        })()
+      }, 2500)
+    },
+    [stopDiscussPoll],
+  )
 
   const persist = useCallback(() => {
     const uid = userId
     const sid = sessionIdRef.current
     if (!uid || !sid) return
+    if (restoringSessionRef.current) return
     if (messages.length === 0 && reports.length === 0) return
     saveSessionSnapshot(uid, sid, {
       messages,
@@ -225,41 +375,101 @@ export function useOsintDashboardChat(
     persist()
   }, [persist])
 
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
   const addMessage = useCallback((msg: Omit<DashboardChatMessage, 'id' | 'timestamp'>) => {
     const full: DashboardChatMessage = { ...msg, id: genId(), timestamp: Date.now() }
-    setMessages((prev) => [...prev, full])
+    setMessages((prev) => repairConversationOrder([...prev, full]))
     return full.id
   }, [])
 
-  const beginW6Round = useCallback(() => {
-    const prevId = activeW6MessageIdRef.current
-    if (prevId) {
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== prevId || m.w6Status !== 'running') return m
-          return {
-            ...m,
-            w6Status: 'done' as const,
-            w6LastLine: m.w6LastLine || '本轮调研已结束',
-          }
-        }),
-      )
-    }
-
-    const id = addMessage({
+  /** Append W6 running chip; optionally prepend a user bubble (skip when form chip already shows params). */
+  const appendW6Round = useCallback((userContent?: string): string => {
+    const now = Date.now()
+    const trimmedUser = userContent?.trim() ?? ''
+    const userMsg: DashboardChatMessage | null = trimmedUser
+      ? {
+          id: genId(),
+          role: 'user',
+          content: trimmedUser,
+          timestamp: now,
+        }
+      : null
+    const w6Msg: DashboardChatMessage = {
+      id: genId(),
       role: 'w6',
       content: '',
+      timestamp: userMsg ? now + 1 : now,
       w6Status: 'running',
       w6Progress: 0,
       w6LastLine: '正在启动 W6 子 Agent…',
       w6Events: [],
+    }
+    let resolvedW6Id = w6Msg.id
+
+    setMessages((prev) => {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const m = prev[i]
+        if (m.role !== 'w6' || m.w6Status !== 'running') continue
+        if (!trimmedUser) break
+        const anchor = prev[i - 1]
+        if (
+          anchor?.role === 'user' &&
+          isSameW6UserContent(anchor.content, trimmedUser)
+        ) {
+          resolvedW6Id = m.id
+          return prev
+        }
+        break
+      }
+
+      const clearedGuided = prev.filter(
+        (m) => !(m.role === 'guided_topics' && m.guidedTopicsStatus !== 'used'),
+      )
+      const sealed = sealAbandonedRunningW6(clearedGuided, null)
+      let anchorTs = now
+      for (const m of sealed) {
+        if (m.timestamp >= anchorTs) anchorTs = m.timestamp + 1
+      }
+      if (userMsg) {
+        userMsg.timestamp = anchorTs
+        w6Msg.timestamp = anchorTs + 1
+      } else {
+        for (let k = sealed.length - 1; k >= 0; k--) {
+          const m = sealed[k]
+          if (m.role === 'form' && m.formStatus === 'submitted') {
+            w6Msg.timestamp = Math.max(anchorTs, m.timestamp + 1)
+            break
+          }
+        }
+        if (w6Msg.timestamp <= anchorTs) {
+          w6Msg.timestamp = anchorTs
+        }
+      }
+      resolvedW6Id = w6Msg.id
+      const next = userMsg ? [...sealed, userMsg, w6Msg] : [...sealed, w6Msg]
+      return repairConversationOrder(next)
     })
-    activeW6MessageIdRef.current = id
-    setActiveW6MessageId(id)
-    setW6StreamEnabled(true)
-    setW6StreamRound((n) => n + 1)
-    return id
-  }, [addMessage])
+
+    activeW6MessageIdRef.current = resolvedW6Id
+    setActiveW6MessageId(resolvedW6Id)
+    if (resolvedW6Id === w6Msg.id) {
+      w6IdleTrackerRef.current = observeSubAgentStatus(createW6IdleTracker(), 'running')
+      w6StreamAttachRef.current = resolvedW6Id
+      setW6StreamEnabled(true)
+      setW6StreamRound((n) => n + 1)
+    } else {
+      setW6StreamEnabled(true)
+    }
+    return resolvedW6Id
+  }, [])
+
+  const appendUserThenW6Round = useCallback(
+    (userContent: string) => appendW6Round(userContent),
+    [appendW6Round],
+  )
 
   const syncActiveW6Message = useCallback(
     (payload: {
@@ -271,17 +481,37 @@ export function useOsintDashboardChat(
       const id = activeW6MessageIdRef.current
       if (!id) return
 
+      const hasLiveEvents = payload.events.some(
+        (e) => e.type !== 'done' && e.type !== 'stopped' && e.type !== 'error',
+      )
+      if (payload.status === 'running' && hasLiveEvents) {
+        w6IdleTrackerRef.current = touchW6StreamActivity(w6IdleTrackerRef.current)
+      }
+
       let w6Status: W6MessageStatus = 'running'
       if (payload.status === 'error') {
         w6Status = 'error'
       } else if (payload.events.some((e) => e.type === 'stopped')) {
         w6Status = 'stopped'
-      } else if (payload.events.some((e) => e.type === 'done')) {
+      } else if (
+        payload.events.some((e) => e.type === 'done') &&
+        hasLiveW6Activity(payload.events)
+      ) {
+        w6Status = 'done'
+      } else if (
+        shouldTreatW6RoundEnded(
+          w6IdleTrackerRef.current.lastSubAgentStatus,
+          w6IdleTrackerRef.current.lastRunningAt,
+          payload.events,
+          Date.now(),
+          payload.events,
+        )
+      ) {
         w6Status = 'done'
       }
 
-      setMessages((prev) =>
-        prev.map((m) =>
+      setMessages((prev) => {
+        const updated = prev.map((m) =>
           m.id === id
             ? {
                 ...m,
@@ -291,12 +521,28 @@ export function useOsintDashboardChat(
                 w6Events: payload.events,
               }
             : m,
-        ),
-      )
+        )
+        if (w6Status === 'done' || w6Status === 'error' || w6Status === 'stopped') {
+          return sealW6MessageStatuses(updated, null)
+        }
+        return updated
+      })
 
       if (w6Status === 'done' || w6Status === 'error' || w6Status === 'stopped') {
         activeW6MessageIdRef.current = ''
         setActiveW6MessageId(null)
+        w6StreamAttachRef.current = null
+        if (w6Status === 'done') {
+          const sid = sessionIdRef.current
+          if (sid) {
+            void loadReportsForSession(sid).then(({ reports, activeReportId }) => {
+              if (reports.length > 0) {
+                setReports(reports)
+                setActiveReportId(activeReportId)
+              }
+            })
+          }
+        }
       }
     },
     [],
@@ -326,7 +572,24 @@ export function useOsintDashboardChat(
           break
         case 'form_request':
           if (event.schema) {
-            setCurrentForm({ schema: event.schema, message: event.message || '请补充信息' })
+            const prompt = event.message || '请补充信息'
+            setMessages((prev) => {
+              const hasPending = prev.some(
+                (m) => m.role === 'form' && m.formStatus === 'pending' && !m.skillKey,
+              )
+              if (hasPending) return prev
+              const full: DashboardChatMessage = {
+                id: genId(),
+                role: 'form',
+                content: prompt,
+                timestamp: Date.now(),
+                formPrompt: prompt,
+                formSchema: event.schema as FormSchema,
+                formStatus: 'pending',
+                stepMode: false,
+              }
+              return [...prev, full]
+            })
           }
           break
         case 'report_md':
@@ -347,7 +610,7 @@ export function useOsintDashboardChat(
                 ...prev,
                 buildMarkdownReportItem(
                   '',
-                  event.title || '研究报告 (MD)',
+                  resolveReportItemTitle(event.markdown, event.title || event.roundTitle),
                   `sse-${Date.now()}`,
                   event.markdown,
                 ),
@@ -359,19 +622,33 @@ export function useOsintDashboardChat(
           if (event.url || event.id) {
             const raw = event.url || event.id || ''
             const resourceId = extractArtifactResourceId(raw)
+            const pending = pendingMarkdownRef.current
             const report = buildHtmlReportItem(
               resourceId || raw,
-              event.title || '未命名报告',
+              resolveReportItemTitle(pending?.markdown, event.title || event.roundTitle || '未命名报告'),
               String(Date.now()),
+              pending?.markdown,
             )
             setReports((prev) => [...prev, report])
             setActiveReportId(report.id)
+            if (resourceId) {
+              const w6Id = activeW6MessageIdRef.current
+              setMessages((prev) => {
+                let idx = w6Id ? prev.findIndex((m) => m.id === w6Id) : -1
+                if (idx < 0) {
+                  idx = prev.reduce((last, m, i) => (m.role === 'w6' ? i : last), -1)
+                }
+                if (idx < 0) return prev
+                const updated = [...prev]
+                updated[idx] = { ...updated[idx], previewResourceId: resourceId }
+                return updated
+              })
+            }
 
-            const pending = pendingMarkdownRef.current
             if (pending?.markdown?.trim()) {
               const mdFromArtifact = buildMarkdownReportItem(
                 '',
-                event.title ? `${event.title} (MD)` : '研究报告 (MD)',
+                resolveReportItemTitle(pending.markdown, event.title || event.roundTitle),
                 `paired-${Date.now()}`,
                 pending.markdown,
               )
@@ -389,18 +666,8 @@ export function useOsintDashboardChat(
           }
           break
         case 'follow_up':
-          if (event.questions?.length) {
+          if (event.questions?.length && w6Active) {
             setFollowUpQuestions(event.questions)
-            if (!w6Active) {
-              const id = assistantIdRef.current
-              setMessages((prev) => {
-                const idx = prev.findIndex((m) => m.id === id)
-                if (idx === -1) return prev
-                const updated = [...prev]
-                updated[idx] = { ...updated[idx], followUpQuestions: event.questions! }
-                return updated
-              })
-            }
           }
           break
         case 'session':
@@ -411,6 +678,12 @@ export function useOsintDashboardChat(
             if (isW6SkillKey(skillKeyRef.current, intelligenceSkills)) {
               setW6StreamEnabled(true)
             }
+          }
+          break
+        case 'session_title':
+          if (event.title?.trim()) {
+            const sid = String(event.sessionId || sessionIdRef.current || '').trim()
+            if (sid) applySessionTitle(sid, event.title)
           }
           break
         case 'error':
@@ -435,7 +708,7 @@ export function useOsintDashboardChat(
           break
       }
     }
-  }, [appendAssistantText])
+  }, [appendAssistantText, applySessionTitle, intelligenceSkills])
 
   const readSSEStream = useCallback(
     async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
@@ -485,24 +758,23 @@ export function useOsintDashboardChat(
 
       setReports([])
       setActiveReportId(null)
-      setCurrentForm(null)
       setFollowUpQuestions([])
       assistantTextRef.current = ''
       skillKeyRef.current = skillKey
       setSkillKey(skillKey)
       sessionIdRef.current = sid
       setSessionId(sid)
+      applySessionTitle(
+        sid,
+        deriveSessionTitleFromFormData(formData, skillName) || skillName,
+      )
       if (!isW6SkillKey(skillKey, intelligenceSkills)) {
         setW6StreamEnabled(false)
       }
       setIsStreaming(true)
 
-      addMessage({
-        role: 'user',
-        content: buildW6StartUserContent(skillName, formData),
-      })
-
-      beginW6Round()
+      // Submitted skill form chip already records params; avoid a duplicate @w6 user bubble.
+      appendW6Round()
       assistantIdRef.current = ''
 
       const abort = new AbortController()
@@ -530,20 +802,77 @@ export function useOsintDashboardChat(
         abortRef.current = null
       }
     },
-    [addMessage, appendAssistantText, beginW6Round, readSSEStream],
+    [appendAssistantText, appendW6Round, applySessionTitle, readSSEStream],
+  )
+
+  const markFormSubmitted = useCallback(
+    (messageId: string, formData: Record<string, unknown>) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId && m.role === 'form'
+            ? { ...m, formStatus: 'submitted', formData }
+            : m,
+        ),
+      )
+    },
+    [],
+  )
+
+  const cancelFormMessage = useCallback((messageId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.role === 'form' && m.formStatus === 'pending'
+          ? { ...m, formStatus: 'cancelled' }
+          : m,
+      ),
+    )
+  }, [])
+
+  const cancelOtherPendingForms = useCallback(() => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.role === 'form' && m.formStatus === 'pending'
+          ? { ...m, formStatus: 'cancelled' }
+          : m,
+      ),
+    )
+  }, [])
+
+  const addSkillFormMessage = useCallback(
+    (
+      skill: Pick<IntelligenceSkill, 'id' | 'key' | 'name'>,
+      fields: FormField[],
+    ): string => {
+      cancelOtherPendingForms()
+      return addMessage({
+        role: 'form',
+        content: `${skill.name} — 请填写参数`,
+        skillKey: skill.key,
+        skillName: skill.name,
+        skillId: skill.id,
+        formSchema: { fields },
+        formStatus: 'pending',
+        stepMode: true,
+      })
+    },
+    [addMessage, cancelOtherPendingForms],
   )
 
   const respondToForm = useCallback(
-    async (formData: Record<string, unknown>, renderedPrompt?: string) => {
-      setCurrentForm(null)
+    async (
+      formData: Record<string, unknown>,
+      renderedPrompt?: string,
+      formMessageId?: string,
+    ) => {
+      if (formMessageId) {
+        markFormSubmitted(formMessageId, formData)
+      }
       setIsStreaming(true)
 
       const summary = buildW6FormSummary(formData)
-      addMessage({
-        role: 'user',
-        content: formatW6UserBubble(`补充信息${summary ? `\n${summary}` : ''}`),
-      })
-      beginW6Round()
+      appendUserThenW6Round(
+        formatW6UserBubble(`补充信息${summary ? `\n${summary}` : ''}`),
+      )
       assistantIdRef.current = ''
 
       const abort = new AbortController()
@@ -567,7 +896,7 @@ export function useOsintDashboardChat(
         abortRef.current = null
       }
     },
-    [addMessage, appendAssistantText, beginW6Round, readSSEStream],
+    [appendAssistantText, appendUserThenW6Round, markFormSubmitted, readSSEStream],
   )
 
   const runW6MessageRound = useCallback(
@@ -580,8 +909,8 @@ export function useOsintDashboardChat(
 
       setIsStreaming(true)
 
-      addMessage({ role: 'user', content: displayText })
-      beginW6Round()
+      appendUserThenW6Round(displayText)
+      applySessionTitle(sid, deriveW6SessionTitle(w6Payload))
       assistantIdRef.current = ''
       assistantTextRef.current = ''
 
@@ -604,7 +933,7 @@ export function useOsintDashboardChat(
         abortRef.current = null
       }
     },
-    [addMessage, appendAssistantText, beginW6Round, readSSEStream],
+    [addMessage, appendAssistantText, appendUserThenW6Round, applySessionTitle, readSSEStream],
   )
 
   const runDiscussRound = useCallback(
@@ -617,7 +946,7 @@ export function useOsintDashboardChat(
 
       const isEdit = Boolean(targetResourceId?.trim())
       setIsStreaming(true)
-      setCurrentPhase(isEdit ? '改版式中…' : '分析报告中…')
+      setCurrentPhase(isEdit ? '改版式中…' : '正在分析报告…')
 
       addMessage({ role: 'user', content: text })
       const id = addMessage({ role: 'assistant', content: '' })
@@ -647,7 +976,12 @@ export function useOsintDashboardChat(
           const idx = prev.findIndex((m) => m.id === id)
           if (idx === -1) return prev
           const updated = [...prev]
-          updated[idx] = { ...updated[idx], content: reply }
+          updated[idx] = {
+            ...updated[idx],
+            content: reply,
+            previewResourceId:
+              data.edited && data.html_resource_id ? data.html_resource_id : undefined,
+          }
           return updated
         })
 
@@ -720,10 +1054,30 @@ export function useOsintDashboardChat(
 
   const restoreSession = useCallback(
     async (targetSessionId: string) => {
+      const restoreGen = ++restoreGenRef.current
+      restoringSessionRef.current = targetSessionId
+
       abortRef.current?.abort()
+      stopDiscussPoll()
       setIsStreaming(false)
       setCurrentPhase('')
-      setCurrentForm(null)
+      assistantTextRef.current = ''
+      assistantIdRef.current = ''
+      activeW6MessageIdRef.current = ''
+      setActiveW6MessageId(null)
+      w6IdleTrackerRef.current = createW6IdleTracker()
+      w6StreamAttachRef.current = null
+      setW6StreamEnabled(false)
+      setW6StreamRound(0)
+      setMessages([])
+      setReports([])
+      setActiveReportId(null)
+      setFollowUpQuestions([])
+      sessionIdRef.current = targetSessionId
+      setSessionId(targetSessionId)
+
+      const isCurrentRestore = () =>
+        restoreGenRef.current === restoreGen && restoringSessionRef.current === targetSessionId
 
       const saved = userId ? loadSessionSnapshot(userId, targetSessionId) : null
       let server: SessionRestoreState | null = null
@@ -733,12 +1087,11 @@ export function useOsintDashboardChat(
         /* offline */
       }
 
-      const serverMessages = server ? mapServerMessages(server) : []
-      const useServerMessages = serverMessages.length > 0
-      const useLocalSnapshot = !useServerMessages && Boolean(saved)
+      if (!isCurrentRestore()) return
 
-      sessionIdRef.current = targetSessionId
-      setSessionId(targetSessionId)
+      const serverMessages = server ? mapServerMessages(server) : []
+      const hasSavedMessages = Boolean(saved?.messages?.length)
+      const useLocalSnapshot = hasSavedMessages && serverMessages.length === 0
 
       const resolvedSkillKey =
         server?.skill_key?.trim() ||
@@ -747,112 +1100,300 @@ export function useOsintDashboardChat(
       skillKeyRef.current = resolvedSkillKey
       setSkillKey(resolvedSkillKey)
 
-      if (isW6SkillKey(resolvedSkillKey, intelligenceSkills)) {
-        setW6StreamEnabled(true)
-        if (server?.w6_stream_active || saved || serverMessages.length > 0) {
-          setW6StreamRound((n) => n + 1)
-        }
-      } else {
-        setW6StreamEnabled(false)
-      }
+      observeServerW6Status(server)
+      const lastRunningAt = w6IdleTrackerRef.current.lastRunningAt
+      const serverRunning = isW6RunningOnServer(server, lastRunningAt)
+      const streamEvents = mapServerStreamEvents(server?.stream_events)
+      const roundComplete = isW6RoundCompleteOnServer(server, streamEvents)
+      let restoredMessages: DashboardChatMessage[] = []
 
-      if (useLocalSnapshot && saved) {
-        applyPersisted(
-          saved,
-          {
-            setMessages,
-            setReports,
-            setActiveReportId,
-            setFollowUpQuestions,
-            setSessionId,
-            setW6StreamEnabled,
-            setSkillKey,
-          },
-          { sessionIdRef, skillKeyRef },
-          intelligenceSkills,
+      if (hasSavedMessages && saved) {
+        restoredMessages =
+          serverMessages.length > 0
+            ? mergeSessionMessagesRaw(serverMessages, saved.messages)
+            : saved.messages
+        setReports(
+          (saved.reports ?? []).map((r) => ({
+            ...r,
+            resourceId: r.resourceId || extractArtifactResourceId(r.url),
+            kind: r.kind || 'html',
+          })),
         )
-        const runningW6 = [...saved.messages]
-          .reverse()
-          .find((m) => m.role === 'w6' && m.w6Status === 'running')
-        if (runningW6) {
-          activeW6MessageIdRef.current = runningW6.id
-          setActiveW6MessageId(runningW6.id)
-        }
-      } else if (useServerMessages) {
-        setMessages(serverMessages)
+        setActiveReportId(saved.activeReportId)
+        setFollowUpQuestions(server?.follow_ups?.length ? server.follow_ups : (saved.followUpQuestions ?? []))
+      } else if (serverMessages.length > 0) {
+        restoredMessages = serverMessages
         setFollowUpQuestions(server?.follow_ups ?? [])
       } else {
-        const placeholder = server?.w6_stream_active
+        const placeholder = serverRunning || !roundComplete
           ? '已重连进行中的会话，W6 子 Agent 状态见下方进度条。'
           : '已加载会话。可继续追问或选择技能开始新任务。'
-        setMessages([
+        restoredMessages = [
           {
             id: genId(),
             role: 'system',
             content: placeholder,
             timestamp: Date.now(),
           },
-        ])
+        ]
         setFollowUpQuestions(server?.follow_ups ?? [])
       }
 
-      if (server?.w6_stream_active) {
-        setMessages((prev) => {
-          const lastW6 = [...prev].reverse().find((m) => m.role === 'w6')
-          if (lastW6?.w6Status === 'running') {
-            activeW6MessageIdRef.current = lastW6.id
-            setActiveW6MessageId(lastW6.id)
-            return prev
+      const syncedMessages = syncW6MessagesWithServerState(
+        restoredMessages,
+        server,
+        w6IdleTrackerRef.current,
+      )
+      const dedupedOnce = dedupeRunningW6Chips(syncedMessages)
+      let liveW6Id = findLastRunningW6Id(dedupedOnce)
+      const dedupedMessages = dedupeRunningW6Chips(dedupedOnce, liveW6Id)
+      let finalized = finalizeSessionMessages(dedupedMessages, liveW6Id)
+
+      if (!isCurrentRestore()) return
+
+      if (serverRunning && !liveW6Id) {
+        const lastW6Idx = findLastW6Index(finalized)
+        const lastW6 = lastW6Idx >= 0 ? finalized[lastW6Idx] : null
+        if (lastW6?.w6Status === 'running') {
+          const revivedId = lastW6.id
+          finalized = finalized.map((m, i) =>
+            i === lastW6Idx
+              ? {
+                  ...m,
+                  w6Status: 'running' as const,
+                  w6Events:
+                    streamEvents.length >= (m.w6Events?.length ?? 0)
+                      ? streamEvents
+                      : (m.w6Events ?? streamEvents),
+                  w6LastLine: m.w6LastLine || 'W6 子 Agent 运行中…',
+                }
+              : m,
+          )
+          liveW6Id = revivedId
+        } else {
+          let ts = Date.now()
+          for (const m of finalized) {
+            if (m.timestamp >= ts) ts = m.timestamp + 1
           }
           const w6Id = genId()
-          activeW6MessageIdRef.current = w6Id
-          setActiveW6MessageId(w6Id)
-          return [
-            ...prev,
+          finalized = repairConversationOrder([
+            ...finalized,
             {
               id: w6Id,
               role: 'w6',
               content: '',
-              timestamp: Date.now(),
+              timestamp: ts,
               w6Status: 'running',
               w6Progress: 0,
               w6LastLine: 'W6 子 Agent 运行中…',
-              w6Events: [],
+              w6Events: streamEvents,
             },
-          ]
-        })
+          ])
+          liveW6Id = w6Id
+        }
+      }
+
+      if (!isCurrentRestore()) return
+
+      setMessages(finalized)
+      activeW6MessageIdRef.current = liveW6Id ?? ''
+      setActiveW6MessageId(liveW6Id)
+
+      if (isW6SkillKey(resolvedSkillKey, intelligenceSkills)) {
+        const needsW6Stream = Boolean(liveW6Id) && (serverRunning || !roundComplete)
+        attachW6StreamIfNeeded(liveW6Id, needsW6Stream)
+      } else {
+        attachW6StreamIfNeeded(null, false)
+      }
+
+      if (!isCurrentRestore()) return
+
+      if (server?.discuss_active) {
+        const phase =
+          server.discuss_mode === 'edit_html' ? '改版式中…' : '分析报告中…'
+        setCurrentPhase(phase)
+        setIsStreaming(true)
+        startDiscussPoll(targetSessionId, saved)
       }
 
       const shouldLoadReports =
-        !useLocalSnapshot || (saved?.reports?.length ?? 0) === 0
+        !hasSavedMessages ||
+        (saved?.reports?.length ?? 0) === 0 ||
+        roundComplete
       if (shouldLoadReports) {
         try {
           const { reports: loadedReports, activeReportId: loadedActiveId } =
             await loadReportsForSession(targetSessionId)
+          if (!isCurrentRestore()) return
           if (loadedReports.length > 0) {
             setReports(loadedReports)
             setActiveReportId(loadedActiveId)
+          } else if (server?.last_html_resource_id?.trim()) {
+            const report = buildHtmlReportItem(
+              server.last_html_resource_id.trim(),
+              '报告',
+              `restore-${Date.now()}`,
+            )
+            setReports([report])
+            setActiveReportId(report.id)
           }
         } catch {
           /* offline */
         }
       }
+
+      if (isCurrentRestore()) {
+        restoringSessionRef.current = null
+      }
     },
-    [userId],
+    [
+      userId,
+      startDiscussPoll,
+      stopDiscussPoll,
+      intelligenceSkills,
+      observeServerW6Status,
+      attachW6StreamIfNeeded,
+    ],
   )
+
+  /** Reconcile local W6 UI with server after laptop sleep / tab resume. */
+  const syncSessionFromServer = useCallback(async () => {
+    const sid = sessionIdRef.current
+    if (!sid || restoringSessionRef.current) return
+
+    let server: SessionRestoreState | null = null
+    try {
+      server = await fetchSessionRestoreState(sid)
+    } catch {
+      return
+    }
+    if (!server || sessionIdRef.current !== sid || restoringSessionRef.current) return
+
+    observeServerW6Status(server)
+    const streamEvents = mapServerStreamEvents(server.stream_events)
+    const roundComplete = isW6RoundCompleteOnServer(server, streamEvents)
+    const w6Active = isW6RunningOnServer(server, w6IdleTrackerRef.current.lastRunningAt)
+    let nextLiveId: string | null = null
+
+    setMessages((prev) => {
+      const synced = syncW6MessagesWithServerState(prev, server, w6IdleTrackerRef.current)
+      const dedupedOnce = dedupeRunningW6Chips(synced, activeW6MessageIdRef.current || null)
+      nextLiveId = findLastRunningW6Id(dedupedOnce)
+      let deduped = dedupeRunningW6Chips(dedupedOnce, nextLiveId)
+      const activeChipEvents = nextLiveId
+        ? (deduped.find((m) => m.id === nextLiveId)?.w6Events ?? [])
+        : []
+      if (
+        nextLiveId &&
+        shouldTreatW6RoundEnded(
+          server.sub_agent_status,
+          w6IdleTrackerRef.current.lastRunningAt,
+          streamEvents,
+          Date.now(),
+          activeChipEvents,
+        )
+      ) {
+        deduped = deduped.map((m) =>
+          m.id === nextLiveId && m.role === 'w6' && m.w6Status === 'running'
+            ? {
+                ...m,
+                w6Status: 'done' as W6MessageStatus,
+                w6Events:
+                  streamEvents.length >= (m.w6Events?.length ?? 0)
+                    ? streamEvents
+                    : (m.w6Events ?? streamEvents),
+                w6LastLine: m.w6LastLine || '调研完成',
+              }
+            : m,
+        )
+        nextLiveId = null
+      }
+      return finalizeSessionMessages(deduped, nextLiveId)
+    })
+
+    if (sessionIdRef.current !== sid) return
+
+    activeW6MessageIdRef.current = nextLiveId ?? ''
+    setActiveW6MessageId(nextLiveId)
+
+    if (server.follow_ups?.length) {
+      setFollowUpQuestions(server.follow_ups)
+    }
+
+    const needsReconnect = Boolean(nextLiveId) && (w6Active || !roundComplete)
+    attachW6StreamIfNeeded(nextLiveId, needsReconnect)
+
+    if (!roundComplete || sessionIdRef.current !== sid) return
+
+    try {
+      const { reports: loadedReports, activeReportId: loadedActiveId } =
+        await loadReportsForSession(sid)
+      if (sessionIdRef.current !== sid) return
+      if (loadedReports.length > 0) {
+        setReports(loadedReports)
+        setActiveReportId(loadedActiveId)
+      } else if (server.last_html_resource_id?.trim()) {
+        const report = buildHtmlReportItem(
+          server.last_html_resource_id.trim(),
+          '报告',
+          `sync-${Date.now()}`,
+        )
+        setReports([report])
+        setActiveReportId(report.id)
+      }
+    } catch {
+      /* offline */
+    }
+  }, [attachW6StreamIfNeeded, observeServerW6Status, sealActiveW6FromIdle])
+
+  useEffect(() => {
+    if (!activeW6MessageId || restoringSessionRef.current) return
+    const tick = setInterval(() => {
+      void (async () => {
+        const sid = sessionIdRef.current
+        if (!sid || restoringSessionRef.current) return
+        try {
+          const server = await fetchSessionRestoreState(sid)
+          if (sessionIdRef.current !== sid) return
+          observeServerW6Status(server)
+          const events = mapServerStreamEvents(server?.stream_events)
+          const activeId = activeW6MessageIdRef.current
+          const chipEvents = activeId
+            ? (messagesRef.current.find((m) => m.id === activeId)?.w6Events ?? [])
+            : []
+          if (
+            shouldTreatW6RoundEnded(
+              server?.sub_agent_status,
+              w6IdleTrackerRef.current.lastRunningAt,
+              events,
+              Date.now(),
+              chipEvents,
+            )
+          ) {
+            sealActiveW6FromIdle(events)
+          }
+        } catch {
+          /* offline */
+        }
+      })()
+    }, 5000)
+    return () => clearInterval(tick)
+  }, [activeW6MessageId, observeServerW6Status, sealActiveW6FromIdle])
 
   const resetForNewSkill = useCallback(() => {
     abortRef.current?.abort()
+    stopDiscussPoll()
     setMessages([])
     setReports([])
     setActiveReportId(null)
-    setCurrentForm(null)
     setFollowUpQuestions([])
     setCurrentPhase('')
     assistantTextRef.current = ''
     assistantIdRef.current = ''
     activeW6MessageIdRef.current = ''
     setActiveW6MessageId(null)
+    w6IdleTrackerRef.current = createW6IdleTracker()
+    w6StreamAttachRef.current = null
     sessionIdRef.current = null
     skillKeyRef.current = null
     setSkillKey(null)
@@ -860,7 +1401,7 @@ export function useOsintDashboardChat(
     setW6StreamEnabled(false)
     setW6StreamRound(0)
     setIsStreaming(false)
-  }, [])
+  }, [stopDiscussPoll])
 
   const bindSession = useCallback((sid: string) => {
     sessionIdRef.current = sid
@@ -913,7 +1454,7 @@ export function useOsintDashboardChat(
         appendReport(
           buildMarkdownReportItem(
             '',
-            ev.roundTitle ? `${ev.roundTitle} (MD)` : '研究报告 (MD)',
+            resolveReportItemTitle(ev.markdown, ev.roundTitle),
             `w6-md-${Date.now()}`,
             ev.markdown,
           ),
@@ -922,13 +1463,24 @@ export function useOsintDashboardChat(
 
       const raw = ev.reportUrl || ev.previewFile
       if (raw) {
+        const resourceId = extractArtifactResourceId(raw)
         appendReport(
           buildHtmlReportItem(
-            extractArtifactResourceId(raw),
-            ev.roundTitle || '报告',
+            resourceId,
+            resolveReportItemTitle(ev.markdown, ev.roundTitle || '报告'),
             `w6-${Date.now()}`,
+            ev.markdown,
           ),
         )
+        if (resourceId) {
+          setMessages((prev) => {
+            const idx = prev.reduce((last, m, i) => (m.role === 'w6' ? i : last), -1)
+            if (idx < 0) return prev
+            const updated = [...prev]
+            updated[idx] = { ...updated[idx], previewResourceId: resourceId }
+            return updated
+          })
+        }
         return
       }
       const sid = sessionIdRef.current
@@ -939,9 +1491,21 @@ export function useOsintDashboardChat(
         for (const r of serverReports) {
           const resourceId = extractArtifactResourceId(r.url || r.id)
           if (isMarkdownReportType(r.type)) {
-            appendReport(buildMarkdownReportItem(resourceId, r.title || '研究报告 (MD)', `w6-fb-${r.id}`))
+            appendReport(
+              buildMarkdownReportItem(
+                resourceId,
+                resolveReportItemTitle(undefined, r.title || '报告'),
+                `w6-fb-${r.id}`,
+              ),
+            )
           } else {
-            appendReport(buildHtmlReportItem(resourceId, r.title || '报告', `w6-fb-${r.id}`))
+            appendReport(
+              buildHtmlReportItem(
+                resourceId,
+                resolveReportItemTitle(undefined, r.title || '报告'),
+                `w6-fb-${r.id}`,
+              ),
+            )
           }
         }
       } catch {
@@ -953,9 +1517,12 @@ export function useOsintDashboardChat(
 
   const abort = useCallback(() => {
     abortRef.current?.abort()
+    stopDiscussPoll()
     setIsStreaming(false)
     setCurrentPhase('')
-  }, [])
+  }, [stopDiscussPoll])
+
+  useEffect(() => () => stopDiscussPoll(), [stopDiscussPoll])
 
   const appendUserMessage = useCallback(
     (content: string, resourceRefs?: Array<{ id: string; name?: string; type?: string }>) => {
@@ -969,13 +1536,73 @@ export function useOsintDashboardChat(
     [addMessage],
   )
 
+  const upsertGuidedTopicsMessage = useCallback((topics: GuidedTopicSnap[]) => {
+    if (topics.length === 0) return
+    const fp = guidedTopicsFingerprint(topics)
+    setMessages((prev) => {
+      const sameIdx = prev.findIndex(
+        (m) =>
+          m.role === 'guided_topics' &&
+          guidedTopicsFingerprint(m.guidedTopics ?? []) === fp,
+      )
+      if (sameIdx >= 0) return prev
+
+      let activeIdx = -1
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].role === 'guided_topics' && prev[i].guidedTopicsStatus !== 'used') {
+          activeIdx = i
+          break
+        }
+      }
+      if (activeIdx >= 0) {
+        return prev.map((m, i) =>
+          i === activeIdx
+            ? { ...m, guidedTopics: topics, timestamp: Date.now() }
+            : m,
+        )
+      }
+
+      let insertAfter = prev.length
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const m = prev[i]
+        if (
+          m.role === 'w6' &&
+          (m.w6Status === 'done' || m.w6Status === 'stopped' || m.w6Status === 'error')
+        ) {
+          insertAfter = i + 1
+          break
+        }
+      }
+      const full: DashboardChatMessage = {
+        id: genId(),
+        role: 'guided_topics',
+        content: '深度调研建议',
+        timestamp: Date.now(),
+        guidedTopics: topics,
+        guidedTopicsStatus: 'active',
+      }
+      const next = [...prev]
+      next.splice(insertAfter, 0, full)
+      return next
+    })
+  }, [])
+
+  const markGuidedTopicsUsed = useCallback((messageId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.role === 'guided_topics'
+          ? { ...m, guidedTopicsStatus: 'used' }
+          : m,
+      ),
+    )
+  }, [])
+
   return {
     messages,
     reports,
     activeReportId,
     isStreaming,
     currentPhase,
-    currentForm,
     followUpQuestions,
     sessionId,
     w6StreamEnabled,
@@ -983,6 +1610,9 @@ export function useOsintDashboardChat(
     skillKey,
     startChat,
     respondToForm,
+    addSkillFormMessage,
+    markFormSubmitted,
+    cancelFormMessage,
     sendMessage,
     sendW6Message,
     abort,
@@ -990,11 +1620,14 @@ export function useOsintDashboardChat(
     closeReport,
     setActiveReportId,
     restoreSession,
+    syncSessionFromServer,
     bindSession,
     addReportFromW6Done,
     skillKeyRef,
     activeW6MessageId,
     syncActiveW6Message,
     appendUserMessage,
+    upsertGuidedTopicsMessage,
+    markGuidedTopicsUsed,
   }
 }

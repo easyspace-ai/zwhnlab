@@ -9,13 +9,17 @@ import {
   backfillDashboardItems,
   searchDashboardItems,
   fetchStreamGroups,
+  syncDashboardStream,
   triggerAggregator,
   type DashboardItem,
 } from '@/lib/dashboardApi'
 import { cn } from '@/lib/utils'
+import { isAdmin } from '@/lib/authApi'
+import { useOsintUser } from '@/osint/auth'
 import { DashboardOverviewPanel } from './DashboardOverviewPanel'
 
 const BATCH_LIMIT = 50
+const STREAM_SYNC_INTERVAL_MS = 10 * 60 * 1000
 
 type LinkFilter = {
   keyword: string
@@ -82,6 +86,7 @@ function StreamColumn({
   onLoadMoreLocal,
   onBackfill,
   onRefresh,
+  showRefresh = true,
   fetching,
   highlightKeyword: highlight,
   filterMode,
@@ -99,6 +104,7 @@ function StreamColumn({
   onLoadMoreLocal: () => void
   onBackfill: () => void
   onRefresh: () => void
+  showRefresh?: boolean
   fetching: boolean
   highlightKeyword?: string
   filterMode?: 'search' | 'link' | false
@@ -136,15 +142,17 @@ function StreamColumn({
       <div className="shrink-0 border-b border-slate-200 px-3 py-2.5 dark:border-slate-800">
         <div className="flex items-center justify-between">
           <h2 className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-50">{type}</h2>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onRefresh}
-            disabled={fetching || !!filterMode}
-            className="h-6 w-6 shrink-0 p-0"
-          >
-            {fetching ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-          </Button>
+          {showRefresh ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRefresh}
+              disabled={fetching || !!filterMode}
+              className="h-6 w-6 shrink-0 p-0"
+            >
+              {fetching ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            </Button>
+          ) : null}
         </div>
         <p className="mt-0.5 text-[10px] text-slate-400">
           {filterMode ? `匹配 ${items.length} 条` : `${totalCount} 条数据`}
@@ -206,12 +214,6 @@ function StreamColumn({
                           源文
                         </a>
                       )}
-                      {isClickable && filterMode !== 'link' && (
-                        <span className="ml-auto flex items-center gap-0.5 text-[9px] text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 [.group:hover_&]:opacity-100">
-                          <Link2 className="h-2.5 w-2.5" />
-                          联动
-                        </span>
-                      )}
                     </div>
                   </button>
                 )
@@ -239,6 +241,8 @@ function StreamColumn({
 
 export function DashboardRouteLayout() {
   const { leftCollapsed } = useWorkbenchChrome()
+  const user = useOsintUser()
+  const showAdminActions = isAdmin(user)
 
   const [streamTypes, setStreamTypes] = useState<string[]>([])
   const [streamTypesLoading, setStreamTypesLoading] = useState(true)
@@ -379,15 +383,42 @@ export function DashboardRouteLayout() {
     }
   }, [])
 
-  const handleRefresh = useCallback(
-    (type: string) => {
-      setStreamFetching((prev) => ({ ...prev, [type]: true }))
-      void loadStreamData(type).finally(() => {
-        setStreamFetching((prev) => ({ ...prev, [type]: false }))
-      })
+  const syncAndReload = useCallback(
+    async (types: string[]) => {
+      const markFetching = (on: boolean) => {
+        setStreamFetching((prev) => {
+          const next = { ...prev }
+          for (const type of types) next[type] = on
+          return next
+        })
+      }
+      markFetching(true)
+      try {
+        await syncDashboardStream()
+        await Promise.all(types.map((type) => loadStreamData(type)))
+      } catch (e) {
+        console.error('Failed to sync dashboard stream:', e)
+      } finally {
+        markFetching(false)
+      }
     },
     [loadStreamData],
   )
+
+  const handleRefresh = useCallback(
+    (type: string) => {
+      void syncAndReload([type])
+    },
+    [syncAndReload],
+  )
+
+  useEffect(() => {
+    if (!showAdminActions || streamTypes.length === 0 || filterMode) return
+    const t = window.setInterval(() => {
+      void syncAndReload(streamTypes)
+    }, STREAM_SYNC_INTERVAL_MS)
+    return () => window.clearInterval(t)
+  }, [showAdminActions, streamTypes, filterMode, syncAndReload])
 
   const handleTriggerAggregator = async () => {
     setAggregatorTriggering(true)
@@ -590,51 +621,53 @@ export function DashboardRouteLayout() {
                   : '暂无可用分类'}
             </p>
           </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleTriggerAggregator}
-              disabled={aggregatorTriggering}
-              className="h-6 px-2 text-[11px]"
-              title="手动测试：将信息流最新 10 条推送到 AI 会话"
-            >
-              {aggregatorTriggering ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Zap className="h-3 w-3" />
-              )}
-              <span className="ml-1">聚合推送</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void loadStreamGroups()}
-              disabled={streamTypesLoading}
-              className="h-6 w-6 p-0"
-              title="刷新分类"
-            >
-              {streamTypesLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => streamTypes.forEach((type) => handleRefresh(type))}
-              disabled={streamTypes.some((type) => streamFetching[type] ?? false) || !!filterMode}
-              className="h-6 w-6 p-0"
-              title="刷新全部数据"
-            >
-              {streamTypes.some((type) => streamFetching[type] ?? false) ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
-            </Button>
-          </div>
+          {showAdminActions ? (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleTriggerAggregator}
+                disabled={aggregatorTriggering}
+                className="h-6 px-2 text-[11px]"
+                title="手动测试：将信息流最新 10 条推送到 AI 会话"
+              >
+                {aggregatorTriggering ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Zap className="h-3 w-3" />
+                )}
+                <span className="ml-1">聚合推送</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void loadStreamGroups()}
+                disabled={streamTypesLoading}
+                className="h-6 w-6 p-0"
+                title="刷新分类"
+              >
+                {streamTypesLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3" />
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void syncAndReload(streamTypes)}
+                disabled={streamTypes.some((type) => streamFetching[type] ?? false) || !!filterMode}
+                className="h-6 w-6 p-0"
+                title="刷新全部数据"
+              >
+                {streamTypes.some((type) => streamFetching[type] ?? false) ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3" />
+                )}
+              </Button>
+            </div>
+          ) : null}
         </div>
         {aggregatorMessage && (
           <p className="mt-1 text-[10px] text-green-600 dark:text-green-400">{aggregatorMessage}</p>
@@ -660,9 +693,7 @@ export function DashboardRouteLayout() {
                 type={type}
                 items={filterMode ? filterItemsByType[type] || [] : streamItems[type] || []}
                 totalCount={streamTotalCounts[type] ?? 0}
-                loading={
-                  filterMode ? activeFilterLoading : (streamLoading[type] ?? false)
-                }
+                loading={filterMode ? activeFilterLoading : (streamLoading[type] ?? false)}
                 loadingMore={filterMode ? false : (streamLoadingMore[type] ?? false)}
                 localHasMore={filterMode ? false : (streamHasMore[type] ?? false)}
                 showBackfillButton={
@@ -673,6 +704,7 @@ export function DashboardRouteLayout() {
                 onLoadMoreLocal={() => handleLoadMoreLocal(type)}
                 onBackfill={() => void handleBackfill(type)}
                 onRefresh={() => handleRefresh(type)}
+                showRefresh={showAdminActions}
                 fetching={streamFetching[type] ?? false}
                 highlightKeyword={activeHighlight}
                 filterMode={filterMode}

@@ -99,7 +99,9 @@ export function DashboardArtifactsPanel({
       <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
         <div>
           <h3 className="text-[12px] font-semibold text-slate-900 dark:text-slate-100">聚合产物</h3>
-          <p className="text-[10px] text-slate-400">聚合推送会话中的 Artifact</p>
+          <p className="text-[10px] text-slate-400">
+            会话 {sessionId || '—'} · 修改 DASHBOARD_SESSION_ID 后需重启服务并点刷新
+          </p>
         </div>
         <Button
           variant="ghost"

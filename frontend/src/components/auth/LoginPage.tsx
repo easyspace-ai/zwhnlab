@@ -50,15 +50,14 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
           <div className="flex items-center gap-3 mb-10">
             <LogoMark />
             <div className="flex flex-col">
-              <span className="text-xl font-bold text-gray-900 dark:text-white">HaiNa Studio</span>
-              <span className="text-gray-500 dark:text-gray-400 text-sm">HaiNa投研平台</span>
+              <span className="text-xl font-bold text-gray-900 dark:text-white">知微海纳</span>
+              <span className="text-gray-500 dark:text-gray-400 text-sm">知微海纳</span>
             </div>
           </div>
 
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">欢迎回来</h1>
-            <p className="text-gray-500 dark:text-gray-400">登录您的账户，继续您的量化之旅</p>
-          </div>
+           </div>
 
           {error ? (
             <div className="mb-6 p-4 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 flex items-start gap-3">

@@ -1,4 +1,4 @@
-import { w as y } from "./main-BkwVbHFp.js";
+import { w as y } from "./main-gNlFrJgr.js";
 const b = "/api/pptxgenjs";
 async function s(e, t) {
   const r = y(), a = new Headers(t == null ? void 0 : t.headers);

@@ -74,10 +74,6 @@ export default defineConfig(({ mode }) => {
           target: env.VITE_BACKEND_PROXY_TARGET?.trim() || 'http://127.0.0.1:8100',
           changeOrigin: true,
         },
-        '/jobs': {
-          target: env.VITE_BACKEND_PROXY_TARGET?.trim() || 'http://127.0.0.1:8100',
-          changeOrigin: true,
-        },
         /** 与生产一致：经主后端 /daily-api 代理至 DailyAPI，勿直连 7220 */
         '/daily-api': {
           target: env.VITE_BACKEND_PROXY_TARGET?.trim() || 'http://127.0.0.1:8100',

@@ -92,13 +92,9 @@ export function useSubAgentStream(
         const data = JSON.parse(ev.data) as W6StreamEvent
         const isTerminal =
           data.type === 'done' || data.type === 'stopped' || data.type === 'error'
-        if (isTerminal && !roundLiveRef.current) {
-          return
-        }
         if (!isTerminal) {
           roundLiveRef.current = true
-        }
-        if (isTerminal) {
+        } else {
           intentionalCloseRef.current = true
         }
         applyStreamEvent(data, setEvents, setProgress, setLastLine, setStatus, setConnection, es)

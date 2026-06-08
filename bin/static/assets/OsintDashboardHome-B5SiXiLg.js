@@ -1,6 +1,6 @@
 import { j as s } from "./three-BECTMk9d.js";
 import { a as o } from "./monaco-BSfMmt4N.js";
-import { G as Ke, H as jt, I as Ze, J as St, K as et, S as ze, N as Nt, O as re, Q as Ct, R as Be, U as Rt, V as $t, W as Et, w as ne, X as Ie, Y as Wt, Z as It, _ as Mt, $ as Tt, a0 as He, x as _t, a1 as tt, a2 as At, a3 as Pt, s as Dt, a4 as Lt, a5 as Qe, a6 as Ge, r as Ft, a7 as zt, a8 as st, C as Ut, u as Kt, p as Bt, a9 as Ot, aa as $e, ab as Ht, ac as Qt, ad as Gt, P as Vt, M as rt, ae as Jt, af as Xt, ag as Yt, ah as qt, E as Zt, o as es, T as ts } from "./main-BkwVbHFp.js";
+import { G as Ke, H as jt, I as Ze, J as St, K as et, S as ze, N as Nt, O as re, Q as Ct, R as Be, U as Rt, V as $t, W as Et, w as ne, X as Ie, Y as Wt, Z as It, _ as Mt, $ as Tt, a0 as He, x as _t, a1 as tt, a2 as At, a3 as Pt, s as Dt, a4 as Lt, a5 as Qe, a6 as Ge, r as Ft, a7 as zt, a8 as st, C as Ut, u as Kt, p as Bt, a9 as Ot, aa as $e, ab as Ht, ac as Qt, ad as Gt, P as Vt, M as rt, ae as Jt, af as Xt, ag as Yt, ah as qt, E as Zt, o as es, T as ts } from "./main-gNlFrJgr.js";
 import "./charts-Cx7lSOSv.js";
 function ss({ value: e, onChange: t, onSend: r, placeholder: n, disabled: a = false, isStreaming: i = false, onStop: u }) {
   const { addToast: p } = Ke(), [b, v] = o.useState([]), g = a, N = o.useCallback(() => {

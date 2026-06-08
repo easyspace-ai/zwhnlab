@@ -15,6 +15,13 @@ import { createChatConversationSlice } from '@/osint/stores/chatConversationSlic
 
 export type { SessionSyncMeta } from '@/osint/stores/apiStoreTypes'
 
+/** Newest-created first; stable order (not bumped by last visit). */
+function sortSessionsByCreatedAt(sessions: TSession[]): TSession[] {
+  return [...sessions].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  )
+}
+
 /** WebSocket 连接状态 */
 type WSConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'failed'
 
@@ -286,7 +293,7 @@ uploadResource: async (sessionId: string, file: File) => {
 fetchSessions: async () => {
      try {
        set({ error: null })
-       const sessions = await sessionApi.listDirect({ limit: 100 })
+       const sessions = sortSessionsByCreatedAt(await sessionApi.listDirect({ limit: 100 }))
        set({ sessions })
      } catch (error: any) {
        set({ error: error.message, sessions: [] })

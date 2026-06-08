@@ -33,11 +33,14 @@ export {
   isAdmin,
   classifyAuthFailure,
   isAuthHttpError,
+  AuthRequiredError,
 } from './client'
 export {
   useOsintAuthStore,
   getOsintAccessToken,
   getOsintAuthHeaders,
+  ensureValidAccessToken,
+  getAuthenticatedHeaders,
   type OsintAuthStore,
   fetchCurrentUser,
 } from './store'

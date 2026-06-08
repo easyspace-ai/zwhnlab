@@ -169,14 +169,27 @@ export type SessionRestoreMessage = {
   follow_up_questions?: string[]
 }
 
+export type SessionRestoreStreamEvent = {
+  type: string
+  message?: string
+  token?: string
+  progress?: number
+  timestamp?: number
+}
+
 export type SessionRestoreState = {
   session_id: string
   skill_key?: string
   report_style?: string
   sub_agent_status?: string
   follow_ups?: string[]
+  last_html_resource_id?: string
+  last_md_resource_id?: string
   w6_stream_active?: boolean
+  discuss_active?: boolean
+  discuss_mode?: 'discuss' | 'edit_html' | string
   messages?: SessionRestoreMessage[]
+  stream_events?: SessionRestoreStreamEvent[]
 }
 
 export async function stopW6Session(sessionId: string): Promise<void> {

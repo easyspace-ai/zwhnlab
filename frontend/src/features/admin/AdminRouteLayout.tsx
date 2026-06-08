@@ -7,17 +7,20 @@ import {
   Puzzle,
   Lock,
   KeyRound,
+  Database,
 } from "lucide-react";
 import { UserManager } from "./UserManager";
 import { RoleManager } from "./RoleManager";
 import { SkillAdminManager } from "./SkillAdminManager";
 import { ChangePasswordModal } from "./ChangePasswordModal";
 import { SystemSettingsPanel } from "./SystemSettingsPanel";
+import { XStreamDataPanel } from "./XStreamDataPanel";
 
 const TABS = [
   { id: "users", label: "用户管理", icon: Users },
   { id: "roles", label: "权限管理", icon: Shield },
   { id: "skills", label: "技能管理", icon: Puzzle },
+  { id: "data", label: "情报数据", icon: Database },
   { id: "profile", label: "修改密码", icon: KeyRound },
 ];
 
@@ -63,6 +66,7 @@ export function AdminRouteLayout() {
         {activeTab === "users" && <UserManager />}
         {activeTab === "roles" && <RoleManager />}
         {activeTab === "skills" && <SkillAdminManager />}
+        {activeTab === "data" && <XStreamDataPanel />}
         {activeTab === "settings" && <SystemSettingsPanel />}
         {activeTab === "profile" && (
           <div className="max-w-xl mx-auto">

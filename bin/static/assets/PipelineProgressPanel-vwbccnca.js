@@ -1,5 +1,5 @@
 import { j as e } from "./three-BECTMk9d.js";
-import { L as m, C as x, z as d, c as u } from "./main-BkwVbHFp.js";
+import { L as m, C as x, z as d, c as u } from "./main-gNlFrJgr.js";
 const p = { ingest: "\u89E3\u6790\u6587\u6863", comprehend: "\u7406\u89E3\u5185\u5BB9", outline: "\u7EC4\u7EC7\u5927\u7EB2", design: "\u6392\u7248\u8BBE\u8BA1", generate: "\u751F\u6210\u6F14\u793A", done: "\u5B8C\u6210", error: "\u51FA\u9519" };
 function h(s, r = 2400) {
   return s.length <= r ? s : `\u2026${s.slice(-r)}`;

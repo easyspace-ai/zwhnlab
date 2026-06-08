@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   Plus,
@@ -24,16 +24,24 @@ import { intelligenceSkillApi } from '@/osint/services/api'
 import type { IntelligenceSkill, FormField } from '@/osint/types'
 import type { SkillGroupLite } from '@/osint/lib/intelligenceSkillToolbar'
 import { useOsintDashboardChat } from './hooks/useOsintDashboardChat'
+import {
+  deriveSessionTitleFromFormData,
+  deriveW6SessionTitle,
+  isAutoSessionTitle,
+} from './lib/sessionTitleSync'
 import { useSubAgentStream } from './hooks/useSubAgentStream'
 import { ReportCanvasPanel } from './components/ReportCanvasPanel'
 import { DashboardGenerativeForm } from './components/GenerativeForm'
-import { FollowUpQuestions } from './components/FollowUpQuestions'
-import { GuidedTopicChips } from './components/GuidedTopicChips'
-import { resolveGuidedTopics, type GuidedTopic } from './lib/guidedTopics'
+import { GuidedTopicsChip } from './components/GuidedTopicsChip'
+import { resolveGuidedTopics } from './lib/guidedTopics'
+import { isW6RoundReadyForGuidedTopics } from './lib/w6SessionState'
+import type { GuidedTopicSnap } from './types'
 import { UserMessageBubble } from './components/UserMessageBubble'
 import { SubAgentChip } from './components/subagent/SubAgentChip'
 import { SubAgentDrawer } from './components/subagent/SubAgentDrawer'
-import { isW6SkillKey } from './types'
+import { isW6SkillKey, type DashboardChatMessage } from './types'
+import { buildW6FormSummary } from './lib/w6Message'
+import { SkillFormChip } from './components/SkillFormChip'
 import { mapW6ChipStatus } from './lib/w6MessageView'
 import type { SubAgentConnection } from './hooks/useSubAgentStream'
 import { ReportStylePicker } from './components/ReportStylePicker'
@@ -175,12 +183,34 @@ export default function OsintDashboardHome() {
   const rightCollapsed = shellChrome?.rightCollapsed ?? false
   const setRightCollapsed = shellChrome?.setRightCollapsed
 
-  const chat = useOsintDashboardChat(userId, intelligenceSkills)
-  const w6Stream = useSubAgentStream(chat.sessionId, chat.w6StreamEnabled, chat.w6StreamRound)
+  const syncSessionTitle = useCallback(
+    async (sessionId: string, title: string) => {
+      const session = useAppStore.getState().sessions.find((s) => s.id === sessionId)
+      if (!session || !isAutoSessionTitle(session.title)) return
+      const next = title.trim()
+      if (!next || next === session.title) return
+      await updateSession(sessionId, next)
+    },
+    [updateSession],
+  )
+
+  const getSessionTitle = useCallback(
+    (sessionId: string) => useAppStore.getState().sessions.find((s) => s.id === sessionId)?.title,
+    [],
+  )
+
+  const chat = useOsintDashboardChat(userId, intelligenceSkills, {
+    getSessionTitle,
+    syncSessionTitle,
+  })
+  const w6Stream = useSubAgentStream(
+    chat.sessionId,
+    chat.w6StreamEnabled && Boolean(chat.activeW6MessageId),
+    chat.w6StreamRound,
+  )
 
   const [skillGroups, setSkillGroups] = useState<SkillGroupLite[]>([])
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
-  const [pendingSkill, setPendingSkill] = useState<IntelligenceSkill | null>(null)
   const [inputText, setInputText] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerW6MessageId, setDrawerW6MessageId] = useState<string | null>(null)
@@ -189,11 +219,17 @@ export default function OsintDashboardHome() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const w6DoneHandledRef = useRef(0)
   const sessionBootstrapRef = useRef(false)
+  const bootstrapPromiseRef = useRef<Promise<void> | null>(null)
+  const urlSessionIdRef = useRef(urlSessionId)
 
   useEffect(() => {
     w6DoneHandledRef.current = 0
   }, [chat.w6StreamRound])
   const [sessionsReady, setSessionsReady] = useState(false)
+
+  useEffect(() => {
+    urlSessionIdRef.current = urlSessionId
+  }, [urlSessionId])
 
   useEffect(() => {
     setReportStyle(loadReportStyle(userId))
@@ -235,7 +271,7 @@ export default function OsintDashboardHome() {
         if (cancelled) return
 
         const list = useAppStore.getState().sessions
-        const targetId = urlSessionId?.trim() || ''
+        const targetId = urlSessionIdRef.current?.trim() || ''
 
         if (targetId && list.some((s) => s.id === targetId)) {
           return
@@ -277,7 +313,8 @@ export default function OsintDashboardHome() {
       }
     }
 
-    void bootstrap()
+    bootstrapPromiseRef.current = bootstrap()
+    void bootstrapPromiseRef.current
     return () => {
       cancelled = true
     }
@@ -285,7 +322,6 @@ export default function OsintDashboardHome() {
 
   useEffect(() => {
     if (!urlSessionId) return
-    chat.bindSession(urlSessionId)
     void chat.restoreSession(urlSessionId)
     connectWebSocket(urlSessionId)
     void fetchResources(urlSessionId)
@@ -294,6 +330,21 @@ export default function OsintDashboardHome() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chat helpers intentionally omitted
   }, [urlSessionId, connectWebSocket, disconnectWebSocket, fetchResources])
+
+  // After sleep / tab switch: pull server W6 status so completed rounds are not stuck on "运行中".
+  useEffect(() => {
+    if (!urlSessionId) return
+    const onResume = () => {
+      if (document.visibilityState !== 'visible') return
+      void chat.syncSessionFromServer()
+    }
+    document.addEventListener('visibilitychange', onResume)
+    window.addEventListener('focus', onResume)
+    return () => {
+      document.removeEventListener('visibilitychange', onResume)
+      window.removeEventListener('focus', onResume)
+    }
+  }, [urlSessionId, chat.syncSessionFromServer])
 
   // Smart preview: auto-open right panel when session has HTML reports
   useEffect(() => {
@@ -331,12 +382,40 @@ export default function OsintDashboardHome() {
     saveReportStyle(userId, style)
   }
 
-  const w6DoneFollowUps = useMemo(() => {
-    const lastDone = [...w6Stream.events].reverse().find((e) => e.type === 'done')
-    return lastDone?.followUps ?? []
-  }, [w6Stream.events])
+  const handleOpenReportPreview = useCallback(
+    (resourceId?: string | null) => {
+      if (chat.reports.length === 0) return
+      setRightCollapsed?.(false)
+      const htmlReports = chat.reports.filter((r) => r.kind === 'html' || !r.kind)
+      const rid = resourceId?.trim()
+      const target = rid
+        ? htmlReports.find((r) => r.resourceId === rid) ??
+          chat.reports.find((r) => r.resourceId === rid)
+        : undefined
+      const resolved =
+        target ??
+        htmlReports.find((r) => r.id === chat.activeReportId) ??
+        htmlReports[htmlReports.length - 1] ??
+        chat.reports[chat.reports.length - 1]
+      if (resolved) {
+        chat.setActiveReportId(resolved.id)
+      }
+    },
+    [chat.reports, chat.activeReportId, chat.setActiveReportId, setRightCollapsed],
+  )
 
-  const { w6Topics, discussTopics } = useMemo(
+  const w6DoneFollowUps = useMemo(() => {
+    if (chat.activeW6MessageId) return []
+    for (let i = chat.messages.length - 1; i >= 0; i--) {
+      const m = chat.messages[i]
+      if (m.role !== 'w6' || m.w6Status !== 'done') continue
+      const doneEv = [...(m.w6Events ?? [])].reverse().find((e) => e.type === 'done')
+      return doneEv?.followUps ?? []
+    }
+    return []
+  }, [chat.messages, chat.activeW6MessageId])
+
+  const guidedTopics = useMemo(
     () =>
       resolveGuidedTopics({
         followUpQuestions: chat.followUpQuestions,
@@ -348,8 +427,36 @@ export default function OsintDashboardHome() {
     [chat.followUpQuestions, chat.messages, chat.skillKey, w6DoneFollowUps, activeReport?.title],
   )
 
-  const showGuidedTopics =
-    chat.reports.length > 0 && !chat.isStreaming && !pendingSkill && !chat.currentForm
+  const hasActiveForm = chat.messages.some(
+    (m) => m.role === 'form' && m.formStatus === 'pending',
+  )
+
+  const w6RoundReadyForGuidedTopics = useMemo(
+    () => isW6RoundReadyForGuidedTopics(chat.messages),
+    [chat.messages],
+  )
+
+  useEffect(() => {
+    if (
+      !w6RoundReadyForGuidedTopics ||
+      chat.activeW6MessageId ||
+      chat.reports.length === 0 ||
+      chat.isStreaming ||
+      hasActiveForm
+    ) {
+      return
+    }
+    if (guidedTopics.length === 0) return
+    chat.upsertGuidedTopicsMessage(guidedTopics)
+  }, [
+    w6RoundReadyForGuidedTopics,
+    chat.activeW6MessageId,
+    chat.reports.length,
+    chat.isStreaming,
+    chat.upsertGuidedTopicsMessage,
+    guidedTopics,
+    hasActiveForm,
+  ])
 
   const drawerW6View = useMemo(() => {
     if (!drawerW6MessageId) return null
@@ -392,9 +499,9 @@ export default function OsintDashboardHome() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [
     chat.messages,
+    hasActiveForm,
     chat.currentPhase,
     chat.activeW6MessageId,
-    showGuidedTopics,
     w6Stream.status,
     w6Stream.lastLine,
     w6Stream.events.length,
@@ -402,7 +509,6 @@ export default function OsintDashboardHome() {
 
   const handleNewSession = async () => {
     chat.resetForNewSkill()
-    setPendingSkill(null)
     const newSess = await createSession('新研究')
     navigate(dashRel(`/sessions/${newSess.id}`))
   }
@@ -443,9 +549,20 @@ export default function OsintDashboardHome() {
   }
 
   const ensureActiveSession = async (titleHint?: string): Promise<string> => {
-    if (urlSessionId) {
-      chat.bindSession(urlSessionId)
-      return urlSessionId
+    if (bootstrapPromiseRef.current) {
+      await bootstrapPromiseRef.current.catch(() => undefined)
+    }
+    const activeId = urlSessionIdRef.current?.trim()
+    if (activeId) {
+      chat.bindSession(activeId)
+      return activeId
+    }
+    const existing = useAppStore.getState().sessions[0]
+    if (existing) {
+      chat.bindSession(existing.id)
+      connectWebSocket(existing.id)
+      navigate(dashRel(`/sessions/${existing.id}`), { replace: true })
+      return existing.id
     }
     const title = titleHint?.trim().slice(0, 30) || '新研究'
     const newSess = await createSession(title)
@@ -460,35 +577,45 @@ export default function OsintDashboardHome() {
       addToast('info', '当前正在生成中，请稍后再试')
       return
     }
-    setPendingSkill(skill)
+    const fields = parseSkillFormFields(skill)
+    if (fields.length === 0) {
+      addToast('error', '该技能未配置表单字段')
+      return
+    }
+    chat.addSkillFormMessage(skill, fields)
   }
 
-  const pendingFormFields: FormField[] = useMemo(
-    () => parseSkillFormFields(pendingSkill),
-    [pendingSkill],
-  )
-
-  const handleW6Submit = async (formData: Record<string, unknown>) => {
-    if (!pendingSkill) return
+  const handleW6FormSubmit = async (
+    msg: DashboardChatMessage,
+    formData: Record<string, unknown>,
+  ) => {
+    if (!msg.skillKey || !msg.skillName) return
     try {
-      const renderedPrompt = await executeIntelligenceSkill(pendingSkill.id, formData)
-      const sid = await ensureActiveSession(pendingSkill.name)
+      const skill = intelligenceSkills.find((s) => s.id === msg.skillId || s.key === msg.skillKey)
+      if (!skill) throw new Error('技能不存在')
+      chat.markFormSubmitted(msg.id, formData)
+      const renderedPrompt = await executeIntelligenceSkill(skill.id, formData)
+      const sid = await ensureActiveSession(
+        deriveSessionTitleFromFormData(formData, skill.name) || skill.name,
+      )
       saveReportStyle(userId, reportStyle)
       await chat.startChat(
-        pendingSkill.key,
-        pendingSkill.name,
+        skill.key,
+        skill.name,
         formData,
         sid,
         renderedPrompt,
         reportStyle,
       )
-      setPendingSkill(null)
     } catch (err: unknown) {
       addToast('error', err instanceof Error ? err.message : '启动研究失败')
     }
   }
 
-  const handleFormRespond = async (formData: Record<string, unknown>) => {
+  const handleFollowUpFormSubmit = async (
+    msg: DashboardChatMessage,
+    formData: Record<string, unknown>,
+  ) => {
     try {
       const skillKey = chat.skillKeyRef.current
       const skill = skillKey
@@ -497,32 +624,44 @@ export default function OsintDashboardHome() {
       const renderedPrompt = skill
         ? await executeIntelligenceSkill(skill.id, formData)
         : undefined
-      await chat.respondToForm(formData, renderedPrompt)
+      await chat.respondToForm(formData, renderedPrompt, msg.id)
     } catch (err: unknown) {
       addToast('error', err instanceof Error ? err.message : '提交补充信息失败')
     }
   }
 
-  const handleSkillSubmit = async (formData: Record<string, unknown>) => {
-    if (!pendingSkill) return
+  const handleNonW6SkillSubmit = async (
+    msg: DashboardChatMessage,
+    formData: Record<string, unknown>,
+  ) => {
+    if (!msg.skillId || !msg.skillName) return
     try {
-      const renderedMessage = await executeIntelligenceSkill(pendingSkill.id, formData)
-      const sessionId = await ensureActiveSession(pendingSkill.name)
+      const skill = intelligenceSkills.find((s) => s.id === msg.skillId)
+      if (!skill) throw new Error('技能不存在')
+      chat.markFormSubmitted(msg.id, formData)
+      const renderedMessage = await executeIntelligenceSkill(skill.id, formData)
+      const sessionId = await ensureActiveSession(skill.name)
       sendMessageWS(sessionId, renderedMessage, [])
-      addToast('success', `${pendingSkill.name} 已提交`)
-      setPendingSkill(null)
+      addToast('success', `${skill.name} 已提交`)
     } catch (err: unknown) {
       addToast('error', err instanceof Error ? err.message : '提交失败')
     }
   }
 
-  const handlePendingSkillSubmit = (formData: Record<string, unknown>) => {
-    if (!pendingSkill) return
-    if (isW6SkillKey(pendingSkill.key, intelligenceSkills)) {
-      void handleW6Submit(formData)
-    } else {
-      void handleSkillSubmit(formData)
+  const handleFormMessageSubmit = (
+    msg: DashboardChatMessage,
+    formData: Record<string, unknown>,
+  ) => {
+    if (msg.formStatus !== 'pending') return
+    if (msg.skillKey) {
+      if (isW6SkillKey(msg.skillKey, intelligenceSkills)) {
+        void handleW6FormSubmit(msg, formData)
+      } else {
+        void handleNonW6SkillSubmit(msg, formData)
+      }
+      return
     }
+    void handleFollowUpFormSubmit(msg, formData)
   }
 
   const handleSend = async (attachments: Attachment[] = []) => {
@@ -533,7 +672,9 @@ export default function OsintDashboardHome() {
 
     if (localAttachments.length > 0) {
       try {
-        const sid = await ensureActiveSession(text || '附件消息')
+        const sid = await ensureActiveSession(
+          deriveW6SessionTitle(text) || text || '附件消息',
+        )
         const uploadedRefs = await chatUploadGroup(
           `upload ${localAttachments.length} local file(s)`,
           { sessionId: sid, files: localAttachments.map((a) => a.name) },
@@ -590,14 +731,12 @@ export default function OsintDashboardHome() {
     }
   }
 
-  const handleGuidedTopic = (topic: GuidedTopic) => {
+  const handleGuidedTopic = (messageId: string, topic: GuidedTopicSnap) => {
     if (chat.isStreaming) return
+    chat.markGuidedTopicsUsed(messageId)
     setInputText('')
-    if (topic.mode === 'w6') {
-      void chat.sendW6Message(topic.text)
-      return
-    }
-    void chat.sendMessage(topic.text)
+    // Guided chips are always W6 deep-research follow-ups.
+    void chat.sendW6Message(topic.text)
   }
 
   const leftPanel = (
@@ -657,39 +796,6 @@ export default function OsintDashboardHome() {
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-              {pendingSkill && pendingFormFields.length > 0 ? (
-                <div className="mb-4">
-                  <div className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-400">
-                    {pendingSkill.name} — 请填写参数
-                  </div>
-                  <DashboardGenerativeForm
-                    fields={pendingFormFields}
-                    onSubmit={handlePendingSkillSubmit}
-                    disabled={chat.isStreaming}
-                    stepMode
-                  />
-                  <button
-                    type="button"
-                    className="mt-2 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
-                    onClick={() => setPendingSkill(null)}
-                  >
-                    取消
-                  </button>
-                </div>
-              ) : null}
-
-              {chat.currentForm ? (
-                <div className="mb-4">
-                  <p className="mb-2 text-xs text-slate-600">{chat.currentForm.message}</p>
-                  <DashboardGenerativeForm
-                    fields={chat.currentForm.schema.fields}
-                    onSubmit={(data) => void handleFormRespond(data)}
-                    disabled={chat.isStreaming}
-                    stepMode={false}
-                  />
-                </div>
-              ) : null}
-
               {chat.messages.map((msg) => {
                 if (msg.role === 'user') {
                   return (
@@ -709,18 +815,65 @@ export default function OsintDashboardHome() {
                           className="prose-sm max-w-none"
                           dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }}
                         />
-                        {chat.reports.length > 0 && msg.content ? (
-                          <p className="mt-2 text-xs text-blue-600 dark:text-blue-400">
-                            报告已生成，见右侧预览
-                          </p>
-                        ) : null}
-                        {msg.followUpQuestions?.length && !showGuidedTopics ? (
-                          <FollowUpQuestions
-                            questions={msg.followUpQuestions}
-                            onClick={(q) => void chat.sendW6Message(q)}
-                          />
+                        {msg.previewResourceId ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenReportPreview(msg.previewResourceId)}
+                            className="mt-2 text-xs text-blue-600 underline-offset-2 transition-colors hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                          >
+                            预览
+                          </button>
                         ) : null}
                       </div>
+                    </div>
+                  )
+                }
+                if (msg.role === 'form') {
+                  const status = msg.formStatus ?? 'pending'
+                  const title = msg.skillName || msg.formPrompt || msg.content
+                  const submittedSummary = msg.formData
+                    ? buildW6FormSummary(msg.formData)
+                    : undefined
+                  return (
+                    <div key={msg.id} className="mb-3">
+                      <SkillFormChip
+                        title={title}
+                        status={status}
+                        submittedSummary={submittedSummary}
+                      >
+                        {status === 'pending' && msg.formSchema?.fields?.length ? (
+                          <DashboardGenerativeForm
+                            fields={msg.formSchema.fields}
+                            onSubmit={(data) => handleFormMessageSubmit(msg, data)}
+                            disabled={chat.isStreaming}
+                            stepMode={msg.stepMode !== false}
+                          />
+                        ) : null}
+                      </SkillFormChip>
+                      {status === 'pending' ? (
+                        <button
+                          type="button"
+                          className="mt-1.5 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
+                          onClick={() => chat.cancelFormMessage(msg.id)}
+                        >
+                          取消
+                        </button>
+                      ) : null}
+                    </div>
+                  )
+                }
+                if (msg.role === 'guided_topics') {
+                  const topics = msg.guidedTopics ?? []
+                  if (topics.length === 0) return null
+                  const status = msg.guidedTopicsStatus ?? 'active'
+                  return (
+                    <div key={msg.id} className="mb-3">
+                      <GuidedTopicsChip
+                        topics={topics}
+                        status={status}
+                        onSelect={(topic) => handleGuidedTopic(msg.id, topic)}
+                        disabled={chat.isStreaming}
+                      />
                     </div>
                   )
                 }
@@ -766,17 +919,6 @@ export default function OsintDashboardHome() {
 
               {chat.currentPhase && !chat.activeW6MessageId ? (
                 <div className="mb-2 text-xs italic text-slate-500">{chat.currentPhase}</div>
-              ) : null}
-
-              {showGuidedTopics ? (
-                <div className="mb-3 max-w-[85%]">
-                  <GuidedTopicChips
-                    w6Topics={w6Topics}
-                    discussTopics={discussTopics}
-                    onSelect={handleGuidedTopic}
-                    disabled={chat.isStreaming}
-                  />
-                </div>
               ) : null}
 
         <div ref={messagesEndRef} />

@@ -1,4 +1,5 @@
 import { authHeaders } from "./authApi";
+import { AuthRequiredError, getAuthenticatedHeaders, getOsintAuthHeaders } from "@/osint/auth";
 
 export interface AdminUser {
   id: string;
@@ -28,7 +29,6 @@ export interface SkillGroupItem {
   description?: string;
   skill_ids: string[];
   role_id?: string;
-  uses_w6?: boolean;
   created_at: string;
 }
 
@@ -195,4 +195,72 @@ export async function updateAdminSettings(payload: Partial<AdminSettings>): Prom
   const data = (await res.json().catch(() => ({}))) as { detail?: string } & Partial<AdminSettings>;
   if (!res.ok) throw new Error(data.detail || `保存失败 (${res.status})`);
   return data as AdminSettings;
+}
+
+export interface XStreamInitStatus {
+  status: "idle" | "running" | "completed" | "failed" | "cancelled";
+  initDone: boolean;
+  itemCount: number;
+  batchesDone: number;
+  lastBatchStored: number;
+  totalStoredThisRun: number;
+  currentCursor: number;
+  hasMore: boolean;
+  error?: string;
+  startedAt?: string;
+  updatedAt?: string;
+}
+
+function xstreamAdminError(data: { error?: string; detail?: string }, fallback: string, status: number): string {
+  return data.detail || data.error || `${fallback} (${status})`;
+}
+
+/** 轮询类请求：复用本地 token / Cookie，避免每次打 /auth/me 触发限流。 */
+async function xstreamAdminFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      ...getOsintAuthHeaders(),
+      ...(init.headers as Record<string, string> | undefined),
+    },
+    credentials: "include",
+  });
+  if (res.status === 401) {
+    throw new AuthRequiredError("登录已失效，请重新登录");
+  }
+  return res;
+}
+
+export async function fetchXStreamInitStatus(): Promise<XStreamInitStatus> {
+  const res = await xstreamAdminFetch("/api/admin/xstream/status");
+  const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string } & Partial<XStreamInitStatus>;
+  if (!res.ok) throw new Error(xstreamAdminError(data, "加载状态失败", res.status));
+  return data as XStreamInitStatus;
+}
+
+export async function clearXStreamData(): Promise<void> {
+  const res = await xstreamAdminFetch("/api/admin/xstream/clear", { method: "POST" });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+  if (!res.ok) throw new Error(xstreamAdminError(data, "清空失败", res.status));
+}
+
+export async function startXStreamInit(clearFirst = true): Promise<void> {
+  // 启动前校验一次会话；轮询阶段不再重复 /auth/me
+  await getAuthenticatedHeaders();
+  const res = await xstreamAdminFetch("/api/admin/xstream/init", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clear_first: clearFirst }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+  if (!res.ok) throw new Error(xstreamAdminError(data, "启动失败", res.status));
+}
+
+export async function cancelXStreamInit(): Promise<void> {
+  const res = await xstreamAdminFetch("/api/admin/xstream/cancel", { method: "POST" });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+  if (!res.ok) throw new Error(xstreamAdminError(data, "取消失败", res.status));
 }

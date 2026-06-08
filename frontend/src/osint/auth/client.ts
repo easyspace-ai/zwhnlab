@@ -145,6 +145,13 @@ export function isAdmin(user: CurrentUser | null): boolean {
   return user?.role === 'admin'
 }
 
+export class AuthRequiredError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AuthRequiredError'
+  }
+}
+
 export function isAuthHttpError(err: unknown): err is Error & { status: number } {
   return (
     err instanceof Error &&

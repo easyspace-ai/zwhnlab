@@ -80,16 +80,22 @@ export function mapW6ChipStatus(
     }
     if (live === 'running') return 'running'
     if (live === 'error' || hasError) return 'error'
-    if (hasTerminal || stored === 'done' || stored === 'stopped') return 'done'
+    if (hasTerminal || stored === 'stopped') return 'done'
+    if (stored === 'done' && hasTerminal) return 'done'
+    if (stored === 'done') return 'running'
     return 'idle'
   }
 
   switch (stored) {
     case 'running':
+      if (hasError) return 'error'
+      if (hasTerminal) return 'done'
       return 'running'
     case 'error':
       return 'error'
     case 'done':
+      if (!hasTerminal) return 'running'
+      return 'done'
     case 'stopped':
       return 'done'
     default:

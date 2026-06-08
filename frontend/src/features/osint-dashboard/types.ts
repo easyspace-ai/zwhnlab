@@ -7,19 +7,44 @@ export interface FormSchema {
 
 export type W6MessageStatus = 'running' | 'done' | 'error' | 'stopped'
 
+export type FormMessageStatus = 'pending' | 'submitted' | 'cancelled'
+
+export type GuidedTopicMode = 'w6' | 'discuss'
+
+export type GuidedTopicsStatus = 'active' | 'used'
+
+export type GuidedTopicSnap = {
+  text: string
+  mode: GuidedTopicMode
+}
+
 export interface DashboardChatMessage {
   id: string
-  role: 'user' | 'assistant' | 'system' | 'phase' | 'w6'
+  role: 'user' | 'assistant' | 'system' | 'phase' | 'w6' | 'form' | 'guided_topics'
   content: string
   timestamp: number
   formSchema?: FormSchema | null
+  /** Skill parameter form (role === 'form'). */
+  formStatus?: FormMessageStatus
+  skillKey?: string
+  skillName?: string
+  skillId?: string
+  formPrompt?: string
+  formData?: Record<string, unknown>
+  /** One field per step for skill forms; false for AI follow-up forms. */
+  stepMode?: boolean
   htmlUrl?: string | null
+  /** Set only when this bubble's turn produced a new HTML report artifact. */
+  previewResourceId?: string | null
   followUpQuestions?: string[] | null
   /** W6 sub-agent round (role === 'w6' only). */
   w6Status?: W6MessageStatus
   w6Progress?: number
   w6LastLine?: string
   w6Events?: W6StreamEvent[]
+  /** Suggested follow-up topics (role === 'guided_topics'). */
+  guidedTopics?: GuidedTopicSnap[]
+  guidedTopicsStatus?: GuidedTopicsStatus
 }
 
 export interface DashboardSSEEvent {
@@ -34,6 +59,7 @@ export interface DashboardSSEEvent {
     | 'done'
     | 'stream_end'
     | 'session'
+    | 'session_title'
   delta?: string
   phase?: string
   message?: string

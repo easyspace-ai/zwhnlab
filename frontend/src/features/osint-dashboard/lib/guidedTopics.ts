@@ -1,23 +1,28 @@
 import type { DashboardChatMessage } from '../types'
 
 const W6_GUIDED_TOPIC_LIMIT = 4
+const MAX_GUIDED_TOPIC_CHARS = 200
 
 export type GuidedTopicMode = 'w6' | 'discuss'
+
+/** Drop skill prompts and other non-question blobs from follow-up chips. */
+export function isUsableGuidedTopicText(raw: string): boolean {
+  const q = raw.trim()
+  if (!q || q.length > MAX_GUIDED_TOPIC_CHARS) return false
+  if (/你是一个.{0,24}(助手|专家|模型|AI|智能体)/.test(q)) return false
+  return true
+}
 
 export type GuidedTopic = {
   text: string
   mode: GuidedTopicMode
 }
 
-/** Non-W6 chips: layout / style tweaks routed to chat/discuss. */
-export const LAYOUT_GUIDED_TOPICS: GuidedTopic[] = [
-  { text: '优化报告排版与章节结构', mode: 'discuss' },
-  { text: '调整报告视觉风格与配色', mode: 'discuss' },
-]
-
-function latestMessageFollowUps(messages: DashboardChatMessage[]): string[] {
+function latestW6FollowUps(messages: DashboardChatMessage[]): string[] {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const qs = messages[i].followUpQuestions
+    const m = messages[i]
+    if (m.role !== 'w6') continue
+    const qs = m.followUpQuestions
     if (qs?.length) return qs
   }
   return []
@@ -69,14 +74,14 @@ export function resolveW6GuidedTopics(options: {
 
   const add = (raw: string) => {
     const q = raw.trim()
-    if (!q || seen.has(q) || out.length >= limit) return
+    if (!q || !isUsableGuidedTopicText(q) || seen.has(q) || out.length >= limit) return
     seen.add(q)
     out.push({ text: q, mode: 'w6' })
   }
 
   for (const q of options.followUpQuestions) add(q)
   for (const q of options.w6FollowUps ?? []) add(q)
-  for (const q of latestMessageFollowUps(options.messages)) add(q)
+  for (const q of latestW6FollowUps(options.messages)) add(q)
 
   if (out.length < limit) {
     for (const q of defaultGuidedTopics(options.skillKey, options.reportTitle)) {
@@ -94,9 +99,6 @@ export function resolveGuidedTopics(options: {
   w6FollowUps?: string[]
   skillKey: string | null | undefined
   reportTitle?: string
-  includeLayoutTopics?: boolean
-}): { w6Topics: GuidedTopic[]; discussTopics: GuidedTopic[] } {
-  const w6Topics = resolveW6GuidedTopics(options)
-  const discussTopics = options.includeLayoutTopics === false ? [] : [...LAYOUT_GUIDED_TOPICS]
-  return { w6Topics, discussTopics }
+}): GuidedTopic[] {
+  return resolveW6GuidedTopics(options)
 }

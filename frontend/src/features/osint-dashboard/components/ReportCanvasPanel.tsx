@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { RefreshCw, ExternalLink, X, FileText, Download, FileCode } from 'lucide-react'
+import { RefreshCw, ExternalLink, X, FileText, Download, FileCode, ChevronDown } from 'lucide-react'
+import { cn } from '@/osint/utils'
 import { MarkdownRenderer } from '@/osint/components/MarkdownRenderer'
 import { useToast } from '@/osint/components/ui/Feedback'
 import { getOsintAccessToken } from '@/osint/auth'
@@ -9,6 +10,7 @@ import {
   exportMarkdownAsWord,
 } from '@/osint/lib/exportMarkdown'
 import { resolveArtifactDownloadUrl, resolveReportPreviewUrl } from '../lib/osintDashboardApi'
+import { formatReportSelectLabel } from '../lib/reportTitleDisplay'
 import type { DashboardReportItem } from '../types'
 
 type ReportCanvasPanelProps = {
@@ -181,15 +183,12 @@ export function ReportCanvasPanel({
     }
   }, [markdownContent, activeReport?.title, addToast])
 
-  const handleTabClose = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleReportClose = (id: string) => {
     const idx = reports.findIndex((r) => r.id === id)
     const remaining = reports.filter((r) => r.id !== id)
-    if (activeReportId === id) {
-      if (remaining.length > 0) {
-        const newIdx = Math.min(idx, remaining.length - 1)
-        onActiveChange(remaining[newIdx].id)
-      }
+    if (activeReportId === id && remaining.length > 0) {
+      const newIdx = Math.min(idx, remaining.length - 1)
+      onActiveChange(remaining[newIdx].id)
     }
     onReportClose(id)
   }
@@ -211,50 +210,66 @@ export function ReportCanvasPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white dark:bg-slate-900">
-      <div className="flex shrink-0 items-center overflow-hidden border-b border-slate-200/90 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/80">
-        <div className="flex flex-1 items-center overflow-x-auto">
-          {reports.map((report, idx) => {
-            const isActive = report.id === activeReportId
-            const isLatest = idx === reports.length - 1
-            const isMd = report.kind === 'markdown'
-            return (
-              <button
-                key={report.id}
-                type="button"
-                onClick={() => onActiveChange(report.id)}
-                className={`group flex max-w-[220px] shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-slate-200/90 px-3 py-2 text-xs transition-colors dark:border-slate-800 ${
-                  isActive
-                    ? '-mb-px border-b-0 border-t-2 border-t-blue-600 bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100'
-                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-200'
-                }`}
-                title={report.title}
-              >
-                {isMd ? (
-                  <FileCode size={12} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
-                ) : (
-                  <FileText size={12} className="shrink-0" />
-                )}
-                <span className="truncate">{report.title}</span>
-                {isLatest && !isActive ? (
-                  <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" />
-                ) : null}
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => handleTabClose(report.id, e)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleTabClose(report.id, e as unknown as React.MouseEvent)
-                  }}
-                  className="ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-red-100 group-hover:opacity-100 dark:hover:bg-red-950/40"
-                >
-                  <X size={10} />
-                </span>
-              </button>
+      <div className="flex shrink-0 items-center gap-2 border-b border-slate-200/90 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/80">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {activeReport ? (
+            isMarkdown ? (
+              <FileCode size={14} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <FileText size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
             )
-          })}
+          ) : null}
+          <div className="relative min-w-0 flex-1">
+            <select
+              value={activeReportId ?? ''}
+              onChange={(e) => onActiveChange(e.target.value)}
+              aria-label="选择报告"
+              title={
+                activeReport
+                  ? formatReportSelectLabel(
+                      activeReport,
+                      reports.findIndex((r) => r.id === activeReport.id),
+                      reports,
+                    )
+                  : undefined
+              }
+              className={cn(
+                'h-8 w-full min-w-0 appearance-none truncate rounded-lg border border-slate-200 bg-white py-0 pl-2.5 pr-8 text-xs font-medium text-slate-800 outline-none transition-colors',
+                'hover:border-slate-300 focus:border-blue-400 focus:ring-1 focus:ring-blue-300/50',
+                'dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:border-slate-600 dark:focus:border-blue-500',
+              )}
+            >
+              {reports.map((report, idx) => (
+                <option key={report.id} value={report.id} title={formatReportSelectLabel(report, idx, reports)}>
+                  {formatReportSelectLabel(report, idx, reports)}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              size={14}
+              className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+              aria-hidden
+            />
+          </div>
+          {reports.length > 1 ? (
+            <span className="shrink-0 text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+              {reports.findIndex((r) => r.id === activeReportId) + 1}/{reports.length}
+            </span>
+          ) : null}
+          {activeReport ? (
+            <button
+              type="button"
+              onClick={() => handleReportClose(activeReport.id)}
+              className="shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+              title="关闭当前报告"
+              aria-label="关闭当前报告"
+            >
+              <X size={13} />
+            </button>
+          ) : null}
         </div>
         {activeReport ? (
-          <div className="flex shrink-0 items-center gap-1 border-l border-slate-200/90 px-2 dark:border-slate-800">
+          <div className="flex shrink-0 items-center gap-1 border-l border-slate-200/90 pl-2 dark:border-slate-800">
             {isMarkdown && canExportMarkdown ? (
               <>
                 <button
@@ -346,7 +361,7 @@ export function ReportCanvasPanel({
           )
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-slate-400">
-            <div className="text-center text-sm">请选择一个报告标签</div>
+            <div className="text-center text-sm">请从下拉菜单选择报告</div>
           </div>
         )}
       </div>

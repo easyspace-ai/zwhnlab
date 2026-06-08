@@ -52,7 +52,7 @@ export const useAppStore = create<AppState>((set) => ({
   setSessions: (sessions) => set({ sessions }),
   setCurrentSession: (session) => set({ currentSession: session }),
   addSession: (session) => set((state) => ({
-    sessions: [session, ...state.sessions],
+    sessions: [session, ...state.sessions.filter((s) => s.id !== session.id)],
   })),
   patchSessionInList: (id, updates) => set((state) => ({
     sessions: state.sessions.map((s) => (s.id === id ? { ...s, ...updates } : s)),

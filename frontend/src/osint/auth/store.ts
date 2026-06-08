@@ -1,12 +1,15 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import {
+  AuthRequiredError,
   classifyAuthFailure,
   getMe,
+  isAuthHttpError,
   loginRequest,
   logoutRequest,
   registerRequest,
   syncAuthCookie,
+  authHeaders,
 } from './client'
 import { OSINT_AUTH_STORAGE_KEY } from './constants'
 import { migrateLegacyAuthStorage } from './migrate'
@@ -60,6 +63,7 @@ export const useOsintAuthStore = create<OsintAuthStore>()(
       setUser: (user) => set({ user }),
 
       clearSession: (reason = null) => {
+        lastMeValidatedAt = 0
         set({ token: null, user: null, lastFailure: reason })
       },
 
@@ -81,6 +85,10 @@ export const useOsintAuthStore = create<OsintAuthStore>()(
           const me = await getMe(activeToken)
           set({ user: me, ready: true, lastFailure: null })
         } catch (err) {
+          if (isAuthHttpError(err) && err.status === 401) {
+            set({ token: null, user: null, ready: true, lastFailure: 'expired' })
+            return
+          }
           const kind = classifyFailure(err, get().token)
           if (kind !== 'expired' || !isTokenExpired(get().token)) {
             set({
@@ -152,8 +160,51 @@ export function getOsintAccessToken(): string | null {
 export function getOsintAuthHeaders(): HeadersInit {
   const token = getOsintAccessToken()
   const headers: Record<string, string> = {}
-  if (token) headers.Authorization = `Bearer ${token}`
+  // 过期 token 不放入 Authorization，让浏览器改走 HttpOnly Cookie（避免 401）
+  if (token && !isTokenExpired(token)) {
+    headers.Authorization = `Bearer ${token}`
+  }
   return headers
+}
+
+let lastMeValidatedAt = 0
+const meValidationTTLMs = 90_000
+
+/** 续期并校验 token；失败时清会话并提示重新登录。 */
+export async function ensureValidAccessToken(): Promise<string> {
+  let token = getOsintAccessToken()
+  if (!token) {
+    throw new AuthRequiredError('请先登录')
+  }
+  token = await maybeRenewAccessToken(token)
+  if (isTokenExpired(token)) {
+    useOsintAuthStore.getState().clearSession('expired')
+    throw new AuthRequiredError('登录已过期，请重新登录')
+  }
+  useOsintAuthStore.getState().setToken(token)
+  await syncAuthCookie(token)
+
+  const now = Date.now()
+  if (now - lastMeValidatedAt < meValidationTTLMs) {
+    return token
+  }
+
+  try {
+    await getMe(token)
+    lastMeValidatedAt = now
+  } catch (err) {
+    if (isAuthHttpError(err) && err.status === 401) {
+      useOsintAuthStore.getState().clearSession('expired')
+      throw new AuthRequiredError('登录已失效，请重新登录')
+    }
+    throw err
+  }
+  return token
+}
+
+export async function getAuthenticatedHeaders(): Promise<HeadersInit> {
+  const token = await ensureValidAccessToken()
+  return authHeaders(token)
 }
 
 export async function fetchCurrentUser(): Promise<CurrentUser> {
