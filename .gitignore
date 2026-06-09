@@ -99,3 +99,9 @@ services/ohmyppt/ohmyppt-deploy.tar.gz
 
 artifacts/
 artifacts
+
+
+*.db-wal
+*.db-shm
+events.jsonl
+ohmyppt-deploy.tar.gz
