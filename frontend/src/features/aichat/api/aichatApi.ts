@@ -31,10 +31,25 @@ export type TimelineResponse = {
   events: SessionEvent[]
   next_seq: number
   active_round_id: string | null
+  has_more?: boolean
+  oldest_seq?: number
 }
 
-export function fetchTimeline(sessionId: string, sinceSeq = 0): Promise<TimelineResponse> {
-  const q = sinceSeq > 0 ? `?sinceSeq=${sinceSeq}` : ''
+export type FetchTimelineOpts = {
+  sinceSeq?: number
+  limitRounds?: number
+  beforeSeq?: number
+}
+
+export function fetchTimeline(sessionId: string, opts: FetchTimelineOpts = {}): Promise<TimelineResponse> {
+  const params = new URLSearchParams()
+  const sinceSeq = opts.sinceSeq ?? 0
+  if (sinceSeq > 0) params.set('sinceSeq', String(sinceSeq))
+  else {
+    params.set('limit_rounds', String(opts.limitRounds ?? 10))
+    if (opts.beforeSeq && opts.beforeSeq > 0) params.set('before_seq', String(opts.beforeSeq))
+  }
+  const q = params.toString() ? `?${params.toString()}` : ''
   return fetchJSON(`/aichat/sessions/${encodeURIComponent(sessionId)}/timeline${q}`)
 }
 
@@ -54,6 +69,31 @@ export type StartRoundBody = {
   message?: string
   rendered_prompt?: string
   report_style?: string
+  mode?: 'discuss' | 'edit_html'
+  target_resource_id?: string
+  draft_id?: string
+}
+
+export function presentFormDraft(
+  sessionId: string,
+  body: {
+    skill_id: string
+    skill_key: string
+    skill_name: string
+    form_schema: string
+  },
+): Promise<{ draft_id: string }> {
+  return fetchJSON(`/aichat/sessions/${encodeURIComponent(sessionId)}/form-drafts`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function cancelFormDraft(sessionId: string, draftId: string): Promise<{ ok: boolean }> {
+  return fetchJSON(
+    `/aichat/sessions/${encodeURIComponent(sessionId)}/form-drafts/${encodeURIComponent(draftId)}/cancel`,
+    { method: 'POST', body: '{}' },
+  )
 }
 
 export function startRound(

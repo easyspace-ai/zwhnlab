@@ -57,7 +57,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      port: 6123,
+      port: 8123,
       host: true,
       proxy: {
         /** 须与 backend/.env 的 PORT 一致；Go 默认见 cmd/server main.go（未设 PORT 时为 8787） */

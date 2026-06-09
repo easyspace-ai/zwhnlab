@@ -1,13 +1,35 @@
-import { SubAgentChip } from '@/features/osint-dashboard/components/subagent/SubAgentChip'
+import { useState } from 'react'
 import { SkillFormChip } from '@/features/osint-dashboard/components/SkillFormChip'
 import { UserAnchorBubble } from './UserAnchorBubble'
 import { GuidedTopicsChip } from '@/features/osint-dashboard/components/GuidedTopicsChip'
-import type { RoundView } from '../../engine/types'
+import { SubAgentDrawer } from '@/features/osint-dashboard/components/subagent/SubAgentDrawer'
+import type { SubAgentConnection } from '@/features/osint-dashboard/hooks/useSubAgentStream'
+import type { W6StreamEvent } from '@/features/osint-dashboard/types'
+import { AssistantBubble } from './AssistantBubble'
+import { ProcessingBubble } from './ProcessingBubble'
+import { W6RoundChip } from './W6RoundChip'
+import { resolveRoundProcessingLabel } from '../../lib/roundProcessing'
+import type { RoundView, W6PanelView } from '../../engine/types'
 
-function mapChipStatus(status: string | undefined, sealed: boolean): 'idle' | 'running' | 'done' | 'error' {
+function w6LogsToStreamEvents(logs: W6PanelView['logs']): W6StreamEvent[] {
+  return logs.map((l, i) => ({
+    type: (l.logType === 'token' ? 'token' : 'log') as 'log' | 'token',
+    message: l.body,
+    token: l.logType === 'token' ? l.body : undefined,
+    progress: l.progress,
+    timestamp: i,
+  }))
+}
+
+function mapChipStatus(
+  status: string | undefined,
+  sealed: boolean,
+): 'idle' | 'running' | 'done' | 'error' {
   if (status === 'error') return 'error'
-  if (sealed || status === 'done' || status === 'stopped') return 'done'
+  if (status === 'stopped' || sealed) return 'done'
   if (status === 'running') return 'running'
+  if (status === 'idle') return 'idle'
+  if (status === 'done') return 'done'
   return 'idle'
 }
 
@@ -16,14 +38,23 @@ export function RoundBlock({
   isActive,
   onStop,
   onSelectTopic,
+  chipsDisabled = false,
 }: {
   round: RoundView
   isActive: boolean
   onStop?: () => void
   onSelectTopic?: (text: string) => void
+  chipsDisabled?: boolean
 }) {
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const w6 = round.w6
   const chipStatus = mapChipStatus(w6?.status, round.sealed)
+  const finalizing = chipStatus === 'idle' && !round.sealed && Boolean(w6)
+  const w6Events = w6 ? w6LogsToStreamEvents(w6.logs) : []
+  const drawerStatus = finalizing ? 'running' : chipStatus === 'idle' ? 'idle' : chipStatus
+  const drawerConnection: SubAgentConnection =
+    isActive && (chipStatus === 'running' || finalizing) ? 'open' : 'closed'
+  const processingLabel = resolveRoundProcessingLabel(round)
 
   return (
     <div className="space-y-3">
@@ -42,27 +73,31 @@ export function RoundBlock({
       ) : null}
 
       {w6 ? (
-        <SubAgentChip
-          status={chipStatus}
-          connection={isActive && chipStatus === 'running' ? 'open' : 'closed'}
-          progress={w6.progress}
-          lastLine={w6.lastLine}
-          events={w6.logs.map((l, i) => ({
-            type: (l.logType === 'token' ? 'token' : 'log') as 'log' | 'token',
-            message: l.body,
-            token: l.logType === 'token' ? l.body : undefined,
-            progress: l.progress,
-            timestamp: i,
-          }))}
-          onClick={() => {}}
-          onStop={chipStatus === 'running' ? onStop : undefined}
-        />
+        <>
+          <W6RoundChip
+            status={chipStatus}
+            finalizing={finalizing}
+            connection={isActive && chipStatus === 'running' ? 'open' : 'closed'}
+            progress={w6.progress}
+            lastLine={w6.lastLine}
+            events={w6Events}
+            onClick={() => setDrawerOpen(true)}
+            onStop={chipStatus === 'running' ? onStop : undefined}
+          />
+          <SubAgentDrawer
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            events={w6Events}
+            status={drawerStatus}
+            connection={drawerConnection}
+          />
+        </>
       ) : null}
 
       {round.assistantText ? (
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-          {round.assistantText}
-        </div>
+        <AssistantBubble content={round.assistantText} />
+      ) : processingLabel ? (
+        <ProcessingBubble label={processingLabel} />
       ) : null}
 
       {round.sealed && round.guidedTopics?.length ? (
@@ -70,6 +105,7 @@ export function RoundBlock({
           topics={round.guidedTopics.map((text) => ({ text, mode: 'w6' as const }))}
           status="active"
           onSelect={(t) => onSelectTopic?.(t.text)}
+          disabled={chipsDisabled}
         />
       ) : null}
     </div>

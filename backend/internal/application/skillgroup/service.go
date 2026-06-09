@@ -112,12 +112,7 @@ func (s *Service) EnsureDefaultGroups(defaultsDir, customDir string) error {
 			}
 			continue
 		}
-		needsUpdate := len(existing.SkillIDs) == 0 ||
-			existing.Name != g.Name ||
-			len(existing.SkillIDs) != len(g.SkillIDs)
-		if needsUpdate {
-			existing.Name = g.Name
-			existing.Description = g.Description
+		if !skillIDsEqual(existing.SkillIDs, g.SkillIDs) {
 			existing.SkillIDs = g.SkillIDs
 			existing.UpdatedAt = time.Now().UTC()
 			if err := s.repo.Update(existing); err != nil {
@@ -147,6 +142,31 @@ func (s *Service) SkillKeysForGroupIDs(groupIDs []string) (map[string]struct{}, 
 }
 
 func strPtr(s string) *string { return &s }
+
+func skillIDsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(a))
+	for _, id := range a {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		seen[id] = struct{}{}
+	}
+	for _, id := range b {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; !ok {
+			return false
+		}
+		delete(seen, id)
+	}
+	return len(seen) == 0
+}
 
 func (s *Service) Create(name string, description *string, skillIDs []string, roleID *string) (*SkillGroup, error) {
 	now := time.Now().UTC()

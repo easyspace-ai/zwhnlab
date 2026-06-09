@@ -20,30 +20,45 @@ type ReportCanvasPanelProps = {
   onReportClose: (id: string) => void
 }
 
+/** In-memory cache so timeline/SSE re-renders do not re-fetch the same artifact. */
+const markdownPreviewCache = new Map<string, string>()
+
 function useMarkdownContent(report: DashboardReportItem | undefined) {
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const kind = report?.kind
+  const resourceId = report?.resourceId?.trim() || ''
+  const inlineMarkdown = report?.markdown?.trim() || ''
+  const previewUrl = report?.url || ''
+
   useEffect(() => {
-    if (!report || report.kind !== 'markdown') {
+    if (kind !== 'markdown') {
       setContent('')
       setError(null)
       setLoading(false)
       return
     }
 
-    if (report.markdown?.trim()) {
-      setContent(report.markdown)
+    if (inlineMarkdown) {
+      setContent(inlineMarkdown)
       setError(null)
       setLoading(false)
       return
     }
 
-    const resourceId = report.resourceId?.trim()
     if (!resourceId) {
       setContent('')
       setError('暂无 Markdown 内容')
+      setLoading(false)
+      return
+    }
+
+    const cached = markdownPreviewCache.get(resourceId)
+    if (cached !== undefined) {
+      setContent(cached)
+      setError(null)
       setLoading(false)
       return
     }
@@ -59,7 +74,7 @@ function useMarkdownContent(report: DashboardReportItem | undefined) {
     }
     if (token) headers.Authorization = `Bearer ${token}`
 
-    const fetchUrl = report.url || resolveReportPreviewUrl(resourceId)
+    const fetchUrl = previewUrl || resolveReportPreviewUrl(resourceId)
     const urlWithToken = token
       ? `${fetchUrl}${fetchUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
       : fetchUrl
@@ -71,6 +86,7 @@ function useMarkdownContent(report: DashboardReportItem | undefined) {
       })
       .then((text) => {
         if (cancelled) return
+        markdownPreviewCache.set(resourceId, text)
         setContent(text)
       })
       .catch((err: unknown) => {
@@ -85,7 +101,7 @@ function useMarkdownContent(report: DashboardReportItem | undefined) {
       cancelled = true
       ac.abort()
     }
-  }, [report])
+  }, [kind, resourceId, inlineMarkdown, previewUrl])
 
   return { content, loading, error }
 }
@@ -333,10 +349,10 @@ export function ReportCanvasPanel({
           </div>
         ) : null}
       </div>
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-white dark:bg-slate-900">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-slate-900">
         {activeReport ? (
           isMarkdown ? (
-            <div className="h-full overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
               {markdownLoading ? (
                 <div className="flex h-full items-center justify-center text-sm text-slate-500">
                   <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
@@ -354,7 +370,7 @@ export function ReportCanvasPanel({
             <iframe
               key={`${activeReport.id}-${refreshKey}`}
               src={activeReport.url}
-              className="block h-full w-full border-0"
+              className="min-h-0 w-full flex-1 border-0"
               title={activeReport.title}
               sandbox="allow-scripts allow-same-origin"
             />

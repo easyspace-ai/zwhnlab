@@ -10,6 +10,7 @@ const maxSessionTitleRunes = 30
 
 var autoSessionTitles = map[string]struct{}{
 	"":     {},
+	"新会话":   {},
 	"新研究":   {},
 	"新对话":   {},
 	"调研主题": {},

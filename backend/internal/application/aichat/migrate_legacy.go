@@ -7,7 +7,7 @@ import (
 	"github.com/easyspace-ai/ylmnote/internal/application/osintdashboard"
 )
 
-// MigrateLegacyIfEmpty converts osint dashboard workflow_state into conversation events once.
+// MigrateLegacyIfEmpty is retained for reference only. AIChat no longer migrates legacy osint-dashboard sessions.
 func MigrateLegacyIfEmpty(sessionID string, workflowRaw, conversationRaw string) (*ConversationState, bool) {
 	if strings.TrimSpace(conversationRaw) != "" && conversationRaw != "{}" {
 		return ParseConversationState(conversationRaw), false

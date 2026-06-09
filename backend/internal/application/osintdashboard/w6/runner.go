@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/easyspace-ai/ylmnote/internal/application/osintdashboard/ai"
-	"github.com/easyspace-ai/ylmnote/internal/application/osintdashboard/render"
 	wsdk "ws-chat-tester/sdk"
 )
 
@@ -122,6 +121,68 @@ func (r *Runner) clearCancel(sessionID string) {
 	delete(r.cancels, sessionID)
 }
 
+// IsActive reports whether a local W6 poll/run goroutine is still running for the session.
+func (r *Runner) IsActive(sessionID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.cancels[sessionID]
+	return ok
+}
+
+// ProbeUpstreamStatus dials upstream W6 once and returns its run status (empty on failure).
+func (r *Runner) ProbeUpstreamStatus(ctx context.Context, sessionID string) string {
+	upstreamID := strings.TrimSpace(r.state.GetUpstreamW6ID(sessionID))
+	if upstreamID == "" {
+		return ""
+	}
+	return r.upstreamStatus(ctx, upstreamID)
+}
+
+// ResumePoll restarts the markdown poll loop when the local goroutine was lost but upstream
+// may still be running (e.g. server restart).
+func (r *Runner) ResumePoll(ctx context.Context, sessionID string) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || r.mockMode {
+		return false
+	}
+	if r.IsActive(sessionID) {
+		return false
+	}
+	upstreamID := strings.TrimSpace(r.state.GetUpstreamW6ID(sessionID))
+	if upstreamID == "" {
+		return false
+	}
+	_ = r.state.SetSubAgentStatus(sessionID, "running")
+	runCtx, cancel := context.WithCancel(context.Background())
+	r.setCancel(sessionID, cancel)
+	go func() {
+		defer r.clearCancel(sessionID)
+		emit := func(ev Event) {
+			ev.SubAgentStatus = "running"
+			r.hub.Publish(sessionID, ev)
+		}
+		emit(Event{Type: "log", Message: "监控：恢复 W6 轮询…", Progress: 50})
+		md, err := r.pollMarkdown(runCtx, upstreamID, emit)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			_ = r.state.SetSubAgentStatus(sessionID, "error")
+			r.hub.Publish(sessionID, Event{Type: "error", Message: err.Error(), SubAgentStatus: "error"})
+			return
+		}
+		_ = r.state.UpdateMarkdown(sessionID, md, sessionID)
+		_ = r.state.SetSubAgentStatus(sessionID, "idle")
+		r.hub.Publish(sessionID, Event{
+			Type:           "phase",
+			Message:        "报告草稿就绪，等待收尾…",
+			Progress:       95,
+			SubAgentStatus: "idle",
+		})
+	}()
+	return true
+}
+
 func (r *Runner) cancelRound(sessionID string) {
 	r.mu.Lock()
 	cancel, ok := r.cancels[sessionID]
@@ -162,56 +223,14 @@ func (r *Runner) run(ctx context.Context, sessionID, prompt, topic string) {
 		return
 	}
 
-	style := r.state.GetReportStyle(sessionID)
-	emit(Event{Type: "phase", Message: "正在智能整理报告结构…", Progress: 88})
-	var html string
-	if r.reportRender != nil {
-		var normalized bool
-		html, _, normalized = r.reportRender.RenderReportHTML(ctx, md, topic, style)
-		if normalized {
-			emit(Event{Type: "log", Message: "已应用 osint-report-skill 轻度排版"})
-		}
-	}
-	if html == "" {
-		meta := render.MetaFromMarkdown(md, topic)
-		meta.VisualStyle = style
-		html = render.BuildFactCheckReportHTML(md, meta)
-	}
-	emit(Event{Type: "phase", Message: "正在应用报告排版…", Progress: 90})
-
-	htmlResourceID := ""
-	if r.reports != nil {
-		title := roundTitle(topic, prompt)
-		htmlResourceID, err = r.reports.SaveRound(ctx, sessionID, title, md, html)
-		if err != nil {
-			log.Printf("[osintdashboard] save report: %v", err)
-		}
-	}
-	previewKey := htmlResourceID
-	if previewKey == "" {
-		previewKey = sessionID
-	}
-	_ = r.state.UpdateMarkdown(sessionID, md, previewKey)
+	_ = r.state.UpdateMarkdown(sessionID, md, sessionID)
 	_ = r.state.SetSubAgentStatus(sessionID, "idle")
-
-	followUps, _ := r.ai.GenerateFollowUps(ctx, md, topic)
-	if len(followUps) == 0 {
-		followUps = defaultFollowUps(topic)
-	}
-
-	emit(Event{
-		Type:           "done",
-		Message:        "调研完成",
-		Progress:       100,
-		Markdown:       md,
-		ReportHTML:     html,
-		PreviewFile:    previewKey,
-		ReportURL:      previewKey,
-		FollowUps:      followUps,
-		RoundTitle:     roundTitle(topic, prompt),
+	r.hub.Publish(sessionID, Event{
+		Type:           "phase",
+		Message:        "报告草稿就绪，等待收尾…",
+		Progress:       95,
 		SubAgentStatus: "idle",
 	})
-	log.Printf("[osintdashboard] round complete session=%s resource=%s", sessionID, htmlResourceID)
 }
 
 func (r *Runner) runMock(ctx context.Context, sessionID, prompt string, emit func(Event)) (string, error) {
@@ -264,8 +283,10 @@ func (r *Runner) pollMarkdown(ctx context.Context, upstreamID string, emit func(
 		deadline = time.Now().Add(r.pollWait)
 	}
 	var textAccumulator strings.Builder
-	var mdCandidate string
+	var lastMessages []wsdk.AgentMessage
 	var lastStatusLine string
+	var lastMsgCount int
+	var stablePolls int
 	emitStatus := func(message string, progress int) {
 		if message == lastStatusLine {
 			return
@@ -284,12 +305,11 @@ func (r *Runner) pollMarkdown(ctx context.Context, upstreamID string, emit func(
 			time.Sleep(2 * time.Second)
 			continue
 		}
+		msgCount := len(resp.Messages)
+		lastMessages = resp.Messages
 		for _, msg := range resp.Messages {
 			if strings.EqualFold(msg.Kind, "from_user") {
 				continue
-			}
-			if md := r.extractMarkdownFromMessage(ctx, msg); md != "" {
-				mdCandidate = md
 			}
 			if c := extractTextFromMessage(msg); c != "" {
 				textAccumulator.WriteString(c)
@@ -298,30 +318,40 @@ func (r *Runner) pollMarkdown(ctx context.Context, upstreamID string, emit func(
 			}
 		}
 
-		if st := r.upstreamStatus(ctx, upstreamID); upstreamIsIdle(st) {
-			if mdCandidate != "" {
+		roundMD := r.latestMarkdownFromMessages(ctx, resp.Messages)
+		roundText := latestUserFacingText(resp.Messages)
+		stableOutput := pollOutputStable(msgCount, lastMsgCount, roundMD != "" || roundText != "", stablePolls)
+		lastMsgCount = msgCount
+		stablePolls = stableOutput.stablePolls
+
+		needStatusProbe := !stableOutput.readyWithoutProbe
+		st := ""
+		if needStatusProbe {
+			st = r.upstreamStatus(ctx, upstreamID)
+		}
+		if upstreamIsIdle(st) || stableOutput.readyWithoutProbe {
+			if roundMD := r.latestMarkdownFromMessages(ctx, resp.Messages); roundMD != "" {
 				emit(Event{Type: "log", Message: "W6 已 idle，Markdown 报告就绪"})
-				return mdCandidate, nil
+				return roundMD, nil
 			}
-			if textAccumulator.Len() > 0 {
-				accText := strings.TrimSpace(textAccumulator.String())
+			if accText := latestUserFacingText(resp.Messages); accText != "" {
 				emit(Event{Type: "log", Message: fmt.Sprintf("W6 已 idle，整理聊天文本 (%d 字符)…", len(accText))})
 				return r.formatTextAsReport(accText), nil
 			}
 		}
 
-		if mdCandidate != "" || textAccumulator.Len() > 0 {
+		if roundMD != "" || roundText != "" {
 			emitStatus("等待 W6 idle…", 70)
 		} else {
 			emitStatus("等待 W6 产出…", 60)
 		}
 		time.Sleep(3 * time.Second)
 	}
-	if mdCandidate != "" {
-		return mdCandidate, nil
+	if roundMD := r.latestMarkdownFromMessages(ctx, lastMessages); roundMD != "" {
+		return roundMD, nil
 	}
-	if textAccumulator.Len() > 0 {
-		return r.formatTextAsReport(strings.TrimSpace(textAccumulator.String())), nil
+	if accText := latestUserFacingText(lastMessages); accText != "" {
+		return r.formatTextAsReport(accText), nil
 	}
 	return "", fmt.Errorf("timeout waiting for W6 response")
 }
@@ -375,12 +405,49 @@ func (r *Runner) upstreamStatus(ctx context.Context, upstreamID string) string {
 		if json.Unmarshal(msg, &frame) != nil {
 			continue
 		}
-		if strings.ToLower(strings.TrimSpace(fmt.Sprint(frame["type"]))) != "status" {
-			continue
+		if st := frameRunStatus(frame); st != "" {
+			return st
 		}
-		return strings.ToLower(strings.TrimSpace(fmt.Sprint(frame["status"])))
 	}
 	return ""
+}
+
+type pollStableState struct {
+	stablePolls         int
+	readyWithoutProbe   bool
+}
+
+// pollOutputStable tracks unchanged AgentMessages while output exists; after two stable
+// polls (~6s) we accept the draft without another WS status dial (avoids endless reconnect).
+func pollOutputStable(msgCount, lastMsgCount int, hasOutput bool, stablePolls int) pollStableState {
+	if !hasOutput || msgCount == 0 {
+		return pollStableState{}
+	}
+	if msgCount == lastMsgCount {
+		stablePolls++
+	} else {
+		stablePolls = 0
+	}
+	return pollStableState{
+		stablePolls:       stablePolls,
+		readyWithoutProbe: stablePolls >= 2,
+	}
+}
+
+func frameRunStatus(frame map[string]any) string {
+	t := strings.ToLower(strings.TrimSpace(fmt.Sprint(frame["type"])))
+	switch t {
+	case "status":
+		return strings.ToLower(strings.TrimSpace(fmt.Sprint(frame["status"])))
+	case "update":
+		state, ok := frame["state"].(map[string]any)
+		if !ok {
+			return ""
+		}
+		return strings.ToLower(strings.TrimSpace(fmt.Sprint(state["status"])))
+	default:
+		return ""
+	}
 }
 
 func upstreamIsIdle(st string) bool {

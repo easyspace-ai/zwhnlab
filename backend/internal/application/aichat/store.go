@@ -75,7 +75,15 @@ func (s *RepoSessionStore) SaveConversationState(sessionID string, state *Conver
 
 // EventStore appends timeline events with monotonic seq.
 type EventStore struct {
-	repo SessionStore
+	repo         SessionStore
+	sessionLocks sync.Map // sessionID -> *sync.Mutex
+}
+
+func (e *EventStore) lockSession(sessionID string) func() {
+	v, _ := e.sessionLocks.LoadOrStore(sessionID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func NewEventStore(repo SessionStore) *EventStore {
@@ -87,6 +95,9 @@ func (e *EventStore) Load(sessionID string) (*ConversationState, *domainproject.
 }
 
 func (e *EventStore) Append(sessionID string, build func(st *ConversationState, seq int64, at int64) SessionEvent) (*SessionEvent, error) {
+	unlock := e.lockSession(sessionID)
+	defer unlock()
+
 	st, _, err := e.repo.GetConversationState(sessionID)
 	if err != nil {
 		return nil, err
@@ -98,6 +109,7 @@ func (e *EventStore) Append(sessionID string, build func(st *ConversationState, 
 	ev.At = at
 	st.Events = append(st.Events, ev)
 	st.NextSeq++
+	st.Version++
 	if err := e.repo.SaveConversationState(sessionID, st); err != nil {
 		return nil, err
 	}
@@ -131,31 +143,41 @@ func (e *EventStore) SetActiveRound(sessionID, roundID string) error {
 }
 
 // AppendRoundStarted creates a new round and sets it active.
+// ValidateStartRound runs in the same locked read-modify-write as the append (P0-1).
 func (e *EventStore) AppendRoundStarted(sessionID, roundID string, kind RoundKind, topic, anchor string, skillKey string) (*SessionEvent, error) {
-	if err := func() error {
-		st, _, err := e.repo.GetConversationState(sessionID)
-		if err != nil {
-			return err
-		}
-		return ValidateStartRound(st, kind)
-	}(); err != nil {
+	unlock := e.lockSession(sessionID)
+	defer unlock()
+
+	st, _, err := e.repo.GetConversationState(sessionID)
+	if err != nil {
 		return nil, err
 	}
-	ev, err := e.Append(sessionID, func(st *ConversationState, seq, at int64) SessionEvent {
-		st.ActiveRoundID = roundID
-		return SessionEvent{
-			Type:    EventRoundStarted,
-			RoundID: roundID,
-			Kind:    string(kind),
-			Topic:   topic,
-			Body:    anchor,
-			Payload: mustJSON(map[string]string{
-				"skill_key": skillKey,
-				"anchor":    anchor,
-			}),
-		}
-	})
-	return ev, err
+	if err := ValidateStartRound(st, kind); err != nil {
+		return nil, err
+	}
+	seq := st.NextSeq
+	at := time.Now().UnixMilli()
+	ev := SessionEvent{
+		Type:    EventRoundStarted,
+		RoundID: roundID,
+		Kind:    string(kind),
+		Topic:   topic,
+		Body:    anchor,
+		Payload: mustJSON(map[string]string{
+			"skill_key": skillKey,
+			"anchor":    anchor,
+		}),
+	}
+	ev.Seq = seq
+	ev.At = at
+	st.ActiveRoundID = roundID
+	st.Events = append(st.Events, ev)
+	st.NextSeq++
+	st.Version++
+	if err := e.repo.SaveConversationState(sessionID, st); err != nil {
+		return nil, err
+	}
+	return &ev, nil
 }
 
 func mustJSON(v any) json.RawMessage {
@@ -178,6 +200,28 @@ func (e *EventStore) AppendW6Status(sessionID, roundID string, status W6Status) 
 			Status:  string(status),
 		}
 	})
+}
+
+// AppendW6StatusForRound appends terminal w6_status during reconcile when ActiveRoundID may already be cleared.
+func (e *EventStore) AppendW6StatusForRound(sessionID, roundID string, status W6Status) (*SessionEvent, error) {
+	if lastW6Status(loadEventsFromStore(e, sessionID), roundID) == string(status) {
+		return nil, nil
+	}
+	return e.Append(sessionID, func(st *ConversationState, seq, at int64) SessionEvent {
+		return SessionEvent{
+			Type:    EventW6Status,
+			RoundID: roundID,
+			Status:  string(status),
+		}
+	})
+}
+
+func loadEventsFromStore(e *EventStore, sessionID string) []SessionEvent {
+	st, _, err := e.Load(sessionID)
+	if err != nil || st == nil {
+		return nil
+	}
+	return st.Events
 }
 
 func (e *EventStore) AppendW6Log(sessionID, roundID, logType, body string, progress int) (*SessionEvent, error) {
@@ -240,6 +284,13 @@ func (e *EventStore) AppendSessionTitle(sessionID, title string) (*SessionEvent,
 }
 
 func (e *EventStore) AppendReportReady(sessionID, roundID, title, mdID, htmlID string) (*SessionEvent, error) {
+	st, _, err := e.Load(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if existing := findReportReadyEvent(st.Events, roundID, mdID, htmlID); existing != nil {
+		return existing, nil
+	}
 	return e.Append(sessionID, func(st *ConversationState, seq, at int64) SessionEvent {
 		return SessionEvent{
 			Type:    EventReportReady,
@@ -249,6 +300,30 @@ func (e *EventStore) AppendReportReady(sessionID, roundID, title, mdID, htmlID s
 			HTMLID:  htmlID,
 		}
 	})
+}
+
+func findReportReadyEvent(events []SessionEvent, roundID, mdID, htmlID string) *SessionEvent {
+	roundID = strings.TrimSpace(roundID)
+	htmlID = strings.TrimSpace(htmlID)
+	mdID = strings.TrimSpace(mdID)
+	for i := range events {
+		ev := &events[i]
+		if ev.Type != EventReportReady || strings.TrimSpace(ev.RoundID) != roundID {
+			continue
+		}
+		evHTML := strings.TrimSpace(ev.HTMLID)
+		evMD := strings.TrimSpace(ev.MDID)
+		if htmlID != "" && evHTML == htmlID {
+			return ev
+		}
+		if mdID != "" && evMD == mdID {
+			return ev
+		}
+		if htmlID == "" && mdID == "" && (evHTML != "" || evMD != "") {
+			return ev
+		}
+	}
+	return nil
 }
 
 func (e *EventStore) AppendAssistantDelta(sessionID, roundID, delta string) (*SessionEvent, error) {

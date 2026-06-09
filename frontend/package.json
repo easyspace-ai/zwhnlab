@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=6123 --host=0.0.0.0",
+    "dev": "vite --port=8123 --host=0.0.0.0",
     "dev:ppthtml-export": "npm --prefix server/ppthtml-export run start",
     "postinstall:ppthtml-export": "npm install --prefix server/ppthtml-export",
-    "dev:ppthtml": "pnpm run dev:ppthtml-export & vite --port=6123 --host=0.0.0.0",
+    "dev:ppthtml": "pnpm run dev:ppthtml-export & vite --port=8123 --host=0.0.0.0",
     "build:slideglance-deps": "node ../slideglance/scripts/run-build-wasm.mjs && pnpm --filter @slideglance/builder --filter @slideglance/viewer build && find ../slideglance/packages/core/dist ../slideglance/packages/measure/dist -name .gitignore -delete",
     "build": "NODE_OPTIONS=--max-old-space-size=8192 vite build",
     "build:embed-backend": "NODE_OPTIONS=--max-old-space-size=8192 vite build",

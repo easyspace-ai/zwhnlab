@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/easyspace-ai/ylmnote/internal/application/osintdashboard"
 	domainproject "github.com/easyspace-ai/ylmnote/internal/domain/project"
@@ -17,6 +18,8 @@ type Service struct {
 	bridge      *W6Bridge
 	idle        *IdleWatcher
 	sessions    domainproject.SessionRepository
+	llmMu       sync.Mutex
+	llmCancels  map[string]*llmRoundWatch
 }
 
 func NewService(
@@ -26,22 +29,23 @@ func NewService(
 	repo := NewRepoSessionStore(sessions)
 	events := NewEventStore(repo)
 	svc := &Service{
-		events:   events,
-		osint:    osint,
-		sessions: sessions,
+		events:     events,
+		osint:      osint,
+		sessions:   sessions,
+		llmCancels: map[string]*llmRoundWatch{},
 	}
 	bridge := NewW6Bridge(events, osint.Hub(), func(sessionID, roundID string) {
 		svc.SyncRoundCompletion(sessionID, roundID)
 	})
 	svc.bridge = bridge
-	idle := NewIdleWatcher(events, func(sessionID string) (string, bool) {
+	idle := NewIdleWatcher(events, func(sessionID string) (bool, bool) {
 		ws, err := osint.Workflow().Get(sessionID)
 		if err != nil || ws == nil {
-			return "", false
+			return false, false
 		}
-		return ws.SubAgentStatus, true
+		return osintdashboard.WorkflowIdleForSeal(ws), true
 	}, func(sessionID, roundID string) {
-		svc.SyncRoundCompletion(sessionID, roundID)
+		svc.attemptW6RoundCompletion(sessionID, roundID)
 	})
 	svc.idle = idle
 	return svc
@@ -53,41 +57,65 @@ func (s *Service) EnsureSessionAccess(sessionID, userID string) (*domainproject.
 	return s.osint.EnsureSessionAccess(sessionID, userID)
 }
 
-// EnsureMigrated loads conversation state, migrating legacy workflow if needed.
+// EnsureMigrated loads conversation state. Legacy workflow migration is not supported (fresh data only).
 func (s *Service) EnsureMigrated(sessionID string) (*ConversationState, error) {
-	st, sess, err := s.events.Load(sessionID)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(sess.ConversationEvents) != "" && sess.ConversationEvents != "{}" {
-		return st, nil
-	}
-	migrated, ok := MigrateLegacyIfEmpty(sessionID, sess.WorkflowState, sess.ConversationEvents)
-	if !ok {
-		return st, nil
-	}
-	sess.ConversationEvents = MarshalConversationState(migrated)
-	if err := s.sessions.Update(sess); err != nil {
-		return nil, err
-	}
-	return migrated, nil
+	st, _, err := s.events.Load(sessionID)
+	return st, err
 }
 
-// Timeline returns events since seq (0 = all).
-func (s *Service) Timeline(sessionID string, sinceSeq int64) ([]SessionEvent, *ConversationState, error) {
-	if _, err := s.EnsureMigrated(sessionID); err != nil {
-		return nil, nil, err
+// healUnsealedW6Round runs draft sync, reconcile, bridge resume, and completion repair.
+func (s *Service) healUnsealedW6Round(sessionID string) {
+	s.syncW6DraftIdleStatus(sessionID)
+	if !s.ReconcileActiveRound(sessionID) {
+		s.ResumeActiveW6(sessionID)
 	}
 	s.RepairSessionCompletion(sessionID)
-	st, _, err := s.events.Load(sessionID)
-	if err != nil {
-		return nil, nil, err
+}
+
+// healSessionOnTimelineLoad runs W6 finalize/reconcile (page refresh, explicit timeline fetch).
+// Incremental SSE polls use sinceSeq > 0 and skip this to avoid hammering finalize + rate limits.
+func (s *Service) healSessionOnTimelineLoad(sessionID string) {
+	s.healUnsealedW6Round(sessionID)
+	s.MaybeSyncSessionTitle(sessionID)
+}
+
+// TimelineResult is the paginated timeline payload for GET /timeline.
+type TimelineResult struct {
+	Events          []SessionEvent
+	State           *ConversationState
+	HasMore         bool
+	OldestSeq       int64
+}
+
+// Timeline returns events since seq (incremental) or a paginated window (sinceSeq=0).
+func (s *Service) Timeline(sessionID string, sinceSeq int64, limitRounds int, beforeSeq int64) (*TimelineResult, error) {
+	if _, err := s.EnsureMigrated(sessionID); err != nil {
+		return nil, err
 	}
 	if sinceSeq <= 0 {
-		return st.Events, st, nil
+		s.healSessionOnTimelineLoad(sessionID)
 	}
-	events, err := s.events.LoadSince(sessionID, sinceSeq)
-	return events, st, err
+	st, _, err := s.events.Load(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if sinceSeq > 0 {
+		events, err := s.events.LoadSince(sessionID, sinceSeq)
+		if err != nil {
+			return nil, err
+		}
+		return &TimelineResult{Events: events, State: st}, nil
+	}
+	if limitRounds <= 0 {
+		limitRounds = DefaultTimelineLimitRounds
+	}
+	page := PaginateTimelineEvents(st.Events, limitRounds, beforeSeq)
+	return &TimelineResult{
+		Events:    page.Events,
+		State:     st,
+		HasMore:   page.HasMore,
+		OldestSeq: page.OldestSeq,
+	}, nil
 }
 
 // Summary returns active round and session title hint.
@@ -112,17 +140,28 @@ func (s *Service) Summary(sessionID string) (map[string]interface{}, error) {
 }
 
 type StartRoundRequest struct {
-	Kind       RoundKind              `json:"kind"`
-	SkillKey   string                 `json:"skill_key,omitempty"`
-	FormData   map[string]interface{} `json:"form_data,omitempty"`
-	Message    string                 `json:"message,omitempty"`
-	Prompt     string                 `json:"rendered_prompt,omitempty"`
-	ReportStyle string                `json:"report_style,omitempty"`
+	Kind             RoundKind              `json:"kind"`
+	SkillKey         string                 `json:"skill_key,omitempty"`
+	FormData         map[string]interface{} `json:"form_data,omitempty"`
+	Message          string                 `json:"message,omitempty"`
+	Prompt           string                 `json:"rendered_prompt,omitempty"`
+	ReportStyle      string                 `json:"report_style,omitempty"`
+	Mode             string                 `json:"mode,omitempty"` // discuss | edit_html
+	TargetResourceID string                 `json:"target_resource_id,omitempty"`
+	DraftID          string                 `json:"draft_id,omitempty"`
 }
 
 // StartRound begins a new conversation round.
 func (s *Service) StartRound(ctx context.Context, sessionID string, req StartRoundRequest) (string, error) {
 	if _, err := s.EnsureMigrated(sessionID); err != nil {
+		return "", err
+	}
+	draftID := strings.TrimSpace(req.DraftID)
+	if draftID != "" {
+		if err := s.cancelPendingFormDrafts(sessionID, draftID); err != nil {
+			return "", err
+		}
+	} else if err := s.cancelPendingFormDrafts(sessionID, ""); err != nil {
 		return "", err
 	}
 	roundID := wsdk.RandomSessionID(8)
@@ -139,6 +178,11 @@ func (s *Service) StartRound(ctx context.Context, sessionID string, req StartRou
 			topic = extractTopicFromForm(req.FormData)
 		}
 		anchor = buildFormAnchor(skillKey, req.FormData)
+		if draftID != "" {
+			if err := s.markFormDraftSubmitted(sessionID, draftID, roundID); err != nil {
+				return "", err
+			}
+		}
 		if _, err := s.events.Append(sessionID, func(st *ConversationState, seq, at int64) SessionEvent {
 			return SessionEvent{
 				Type:    EventFormSubmitted,
@@ -165,12 +209,16 @@ func (s *Service) StartRound(ctx context.Context, sessionID string, req StartRou
 		return "", err
 	}
 
-	if title, updated, _ := s.osint.UpdateSessionTitleIfAuto(sessionID, topic); updated {
+	if title := deriveTitleForRound(req.Kind, topic, req.FormData, skillKey); title != "" {
 		_, _ = s.events.AppendSessionTitle(sessionID, title)
+		_, _, _ = s.osint.UpdateSessionTitleIfAuto(sessionID, title)
 	}
 
 	switch req.Kind {
 	case RoundKindW6Form, RoundKindW6Manual:
+		if req.Kind == RoundKindW6Form && strings.TrimSpace(req.ReportStyle) != "" {
+			_ = s.osint.SetReportStyle(sessionID, req.ReportStyle)
+		}
 		prompt := strings.TrimSpace(req.Prompt)
 		if prompt == "" {
 			prompt = topic
@@ -179,30 +227,39 @@ func (s *Service) StartRound(ctx context.Context, sessionID string, req StartRou
 		s.bridge.Bind(sessionID, roundID)
 		s.idle.Track(sessionID, roundID)
 		s.osint.StartW6Round(ctx, sessionID, prompt, topic)
-		go s.bridge.Watch(context.Background(), sessionID)
+		s.bridge.EnsureWatch(context.Background(), sessionID)
 	case RoundKindDeepSeek:
-		reply := "（DeepSeek 对话将通过 discuss 适配器接入；当前为占位回复。）"
-		_, _ = s.events.AppendAssistantDelta(sessionID, roundID, reply)
-		_, _ = s.events.AppendRoundSealed(sessionID, roundID, SealTerminal)
+		go s.runDeepSeekRound(sessionID, roundID, topic)
 	case RoundKindDiscuss:
-		result, err := s.osint.Discuss(ctx, sessionID, topic)
-		if err != nil {
-			return "", err
+		if isEditHTMLDiscuss(req.Mode, req.TargetResourceID) {
+			go s.runEditHTMLRound(sessionID, roundID, strings.TrimSpace(req.TargetResourceID), topic)
+		} else {
+			go s.runDiscussRound(sessionID, roundID, topic, strings.TrimSpace(req.TargetResourceID))
 		}
-		_, _ = s.events.AppendAssistantDelta(sessionID, roundID, result.Reply)
-		_, _ = s.events.AppendRoundSealed(sessionID, roundID, SealTerminal)
 	}
 
 	return roundID, nil
 }
 
-// StopRound stops W6 for a round.
+// StopRound stops the active round (W6 or streaming LLM).
 func (s *Service) StopRound(sessionID, roundID string) error {
-	s.osint.StopW6Round(sessionID)
-	s.idle.Stop(sessionID)
-	_, _ = s.events.AppendW6Status(sessionID, roundID, W6StatusStopped)
+	st, _, err := s.events.Load(sessionID)
+	if err != nil {
+		return err
+	}
+	if isRoundSealed(st.Events, roundID) {
+		return nil
+	}
+	if isW6RoundKind(st.Events, roundID) {
+		s.osint.StopW6Round(sessionID)
+		s.idle.Stop(sessionID)
+		_, _ = s.events.AppendW6Status(sessionID, roundID, W6StatusStopped)
+		_, _ = s.events.AppendRoundSealed(sessionID, roundID, SealStopped)
+		s.bridge.Unbind(sessionID)
+		return nil
+	}
+	s.cancelLLMRound(sessionID, roundID)
 	_, _ = s.events.AppendRoundSealed(sessionID, roundID, SealStopped)
-	s.bridge.Unbind(sessionID)
 	return nil
 }
 
@@ -211,14 +268,10 @@ func (s *Service) ListReports(sessionID string) ([]*domainproject.Resource, erro
 }
 
 func extractTopicFromForm(form map[string]interface{}) string {
-	for _, k := range []string{"topic", "target", "subject"} {
-		if v, ok := form[k]; ok {
-			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-				return strings.TrimSpace(s)
-			}
-		}
+	if topic := topicFromFormData(form); topic != "" {
+		return topic
 	}
-	return "调研任务"
+	return defaultFormTopic
 }
 
 func buildFormAnchor(skillKey string, form map[string]interface{}) string {

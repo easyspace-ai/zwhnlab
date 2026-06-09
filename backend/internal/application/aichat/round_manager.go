@@ -46,6 +46,10 @@ func DeriveRounds(events []SessionEvent) []RoundSnapshot {
 			case W6StatusRunning:
 				rs.Phase = PhaseW6Running
 				rs.Sealed = false
+			case W6StatusIdle:
+				if rs.Phase == PhasePending {
+					rs.Phase = PhaseW6Running
+				}
 			case W6StatusDone, W6StatusError, W6StatusStopped:
 				if rs.Phase == PhaseW6Running {
 					rs.Phase = PhaseSealed
@@ -94,6 +98,9 @@ func ValidateStartRound(state *ConversationState, kind RoundKind) error {
 	if state == nil {
 		return nil
 	}
+	if rid := strings.TrimSpace(state.ActiveRoundID); rid != "" && !roundSealedInEvents(state.Events, rid) {
+		return fmt.Errorf("round %s still active (INV-3)", rid)
+	}
 	rounds := DeriveRounds(state.Events)
 	if running := hasUnsealedRunning(rounds); running != nil {
 		return fmt.Errorf("round %s still active (INV-3)", running.ID)
@@ -104,6 +111,15 @@ func ValidateStartRound(state *ConversationState, kind RoundKind) error {
 		}
 	}
 	return nil
+}
+
+func roundSealedInEvents(events []SessionEvent, roundID string) bool {
+	for _, ev := range events {
+		if ev.RoundID == roundID && ev.Type == EventRoundSealed {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateFollowUps enforces INV-2: follow_ups only after round_sealed for same round.

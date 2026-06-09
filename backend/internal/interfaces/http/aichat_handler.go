@@ -27,6 +27,8 @@ func (h *AichatHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/sessions/:id/stream", h.stream)
 	r.GET("/sessions/:id/summary", h.summary)
 	r.GET("/sessions/:id/reports", h.reports)
+	r.POST("/sessions/:id/form-drafts", h.presentFormDraft)
+	r.POST("/sessions/:id/form-drafts/:draftId/cancel", h.cancelFormDraft)
 	r.POST("/sessions/:id/rounds", h.startRound)
 	r.POST("/sessions/:id/rounds/:rid/stop", h.stopRound)
 	r.POST("/sessions/:id/rounds/:rid/discuss", h.discussRound)
@@ -44,16 +46,34 @@ func (h *AichatHandler) timeline(c *gin.Context) {
 		return
 	}
 	since, _ := strconv.ParseInt(c.Query("sinceSeq"), 10, 64)
-	events, st, err := h.svc.Timeline(sessionID, since)
+	limitRounds, _ := strconv.Atoi(c.Query("limit_rounds"))
+	beforeSeq, _ := strconv.ParseInt(c.Query("before_seq"), 10, 64)
+	if since > 0 {
+		limitRounds = 0
+		beforeSeq = 0
+	}
+	result, err := h.svc.Timeline(sessionID, since, limitRounds, beforeSeq)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	st := result.State
+	events := result.Events
+	if events == nil {
+		events = []aichat.SessionEvent{}
+	}
+	resp := gin.H{
 		"events":          events,
 		"next_seq":        st.NextSeq,
 		"active_round_id": st.ActiveRoundID,
-	})
+	}
+	if since <= 0 {
+		resp["has_more"] = result.HasMore
+		if result.OldestSeq > 0 {
+			resp["oldest_seq"] = result.OldestSeq
+		}
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *AichatHandler) summary(c *gin.Context) {
@@ -92,6 +112,49 @@ func (h *AichatHandler) reports(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, toResourceListResponse(list))
+}
+
+func (h *AichatHandler) presentFormDraft(c *gin.Context) {
+	u, ok := GetCurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"detail": "Not authenticated"})
+		return
+	}
+	sessionID := c.Param("id")
+	if _, err := h.svc.EnsureSessionAccess(sessionID, u.ID); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"detail": "session not found"})
+		return
+	}
+	var req aichat.PresentFormDraftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "invalid body"})
+		return
+	}
+	draftID, err := h.svc.PresentFormDraft(sessionID, req)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"draft_id": draftID})
+}
+
+func (h *AichatHandler) cancelFormDraft(c *gin.Context) {
+	u, ok := GetCurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"detail": "Not authenticated"})
+		return
+	}
+	sessionID := c.Param("id")
+	draftID := c.Param("draftId")
+	if _, err := h.svc.EnsureSessionAccess(sessionID, u.ID); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"detail": "session not found"})
+		return
+	}
+	if err := h.svc.CancelFormDraft(sessionID, draftID); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 func (h *AichatHandler) startRound(c *gin.Context) {
@@ -197,13 +260,13 @@ func (h *AichatHandler) stream(c *gin.Context) {
 	done := c.Request.Context().Done()
 
 	for {
-		events, _, err := h.svc.Timeline(sessionID, lastSeq)
+		result, err := h.svc.Timeline(sessionID, lastSeq, 0, 0)
 		if err == nil {
-			for _, ev := range events {
+			for _, ev := range result.Events {
 				writeAichatSSE(c.Writer, "event_appended", ev)
 				lastSeq = ev.Seq
 			}
-			if len(events) > 0 {
+			if len(result.Events) > 0 {
 				flusher.Flush()
 			}
 		}

@@ -75,7 +75,18 @@ func (w *WorkflowStore) SetSubAgentStatus(sessionID, status string) error {
 	if err != nil {
 		return err
 	}
+	prev := strings.TrimSpace(ws.SubAgentStatus)
 	ws.SubAgentStatus = status
+	now := time.Now().UnixMilli()
+	if strings.TrimSpace(status) == "running" {
+		ws.SubAgentIdleSince = 0
+		ws.LastHTMLResourceID = ""
+		ws.LastMDResourceID = ""
+		ws.Markdown = ""
+		ws.PreviewFile = ""
+	} else if prev == "running" || ws.SubAgentIdleSince == 0 {
+		ws.SubAgentIdleSince = now
+	}
 	return w.save(sess, ws)
 }
 

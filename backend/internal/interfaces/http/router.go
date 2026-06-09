@@ -329,6 +329,7 @@ func Wire(ctx context.Context, cfg *config.Config, db *persistence.DB) (*WireRes
 	slog.Info("[Router] osint-dashboard routes registered at /api/osint-dashboard")
 
 	aichatSvc := aichat.NewService(sessionRepo, osintDashboardSvc)
+	aichat.NewW6Monitor(aichatSvc, sessionRepo).Start(ctx)
 	aichatHandler := NewAichatHandler(aichatSvc)
 	aichatGroup := api.Group("/aichat")
 	aichatGroup.Use(AuthMiddleware(authSvc))

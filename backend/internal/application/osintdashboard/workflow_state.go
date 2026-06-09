@@ -3,9 +3,13 @@ package osintdashboard
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/easyspace-ai/ylmnote/internal/application/osintdashboard/ai"
 )
+
+// SubAgentIdleSealDelay is how long sub_agent_status must stay non-running before report finalize.
+const SubAgentIdleSealDelay = 15 * time.Second
 
 // UIMessageSnap is one dashboard chat bubble persisted for cross-device restore.
 type UIMessageSnap struct {
@@ -19,6 +23,7 @@ type UIMessageSnap struct {
 type WorkflowState struct {
 	UpstreamW6ID       string            `json:"upstream_w6_id,omitempty"`
 	SubAgentStatus     string            `json:"sub_agent_status,omitempty"`
+	SubAgentIdleSince  int64             `json:"sub_agent_idle_since,omitempty"` // unix ms; set when leaving running
 	Topic              string            `json:"topic,omitempty"`
 	Markdown           string            `json:"markdown,omitempty"`
 	PreviewFile        string            `json:"preview_file,omitempty"`
@@ -76,4 +81,15 @@ var W6FunctionKeys = map[string]struct{}{
 func IsW6FunctionKey(key string) bool {
 	_, ok := W6FunctionKeys[key]
 	return ok
+}
+
+// WorkflowIdleForSeal reports whether sub_agent_status has been non-running for SubAgentIdleSealDelay.
+func WorkflowIdleForSeal(ws *WorkflowState) bool {
+	if ws == nil || strings.TrimSpace(ws.SubAgentStatus) == "running" {
+		return false
+	}
+	if ws.SubAgentIdleSince <= 0 {
+		return false
+	}
+	return time.Now().UnixMilli()-ws.SubAgentIdleSince >= SubAgentIdleSealDelay.Milliseconds()
 }

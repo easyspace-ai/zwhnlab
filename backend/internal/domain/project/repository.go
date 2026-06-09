@@ -17,6 +17,10 @@ type SessionRepository interface {
 	GetByIDAndProjectID(id, projectID string) (*Session, error)
 	ListByProjectID(projectID string, skip, limit int) ([]*Session, error)
 	ListByUserID(userID string, skip, limit int) ([]*Session, error)
+	// ListW6MonitorCandidateIDs returns sessions that may have an in-flight W6 round.
+	ListW6MonitorCandidateIDs(limit int) ([]string, error)
+	// ListLLMMonitorCandidateIDs returns sessions that may have an in-flight discuss/deepseek round.
+	ListLLMMonitorCandidateIDs(limit int) ([]string, error)
 	Update(s *Session) error
 	Delete(id, projectID string) error
 }

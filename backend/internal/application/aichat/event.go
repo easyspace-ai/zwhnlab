@@ -27,9 +27,10 @@ const (
 type SealReason string
 
 const (
-	SealTerminal SealReason = "terminal"
-	SealIdle15s  SealReason = "idle_15s"
-	SealStopped  SealReason = "stopped"
+	SealTerminal    SealReason = "terminal"
+	SealIdle15s     SealReason = "idle_15s"
+	SealStopped     SealReason = "stopped"
+	SealReconciled  SealReason = "reconciled"
 )
 
 // SessionEvent is one append-only timeline entry (SSOT for /aichat UI).
@@ -52,12 +53,15 @@ type SessionEvent struct {
 	MDID     string `json:"md_id,omitempty"`
 	Questions []string `json:"questions,omitempty"`
 	Reason   string `json:"reason,omitempty"`
+	DraftID  string `json:"draft_id,omitempty"`
 }
 
 const (
-	EventRoundStarted    = "round_started"
-	EventFormPresented = "form_presented"
-	EventFormSubmitted = "form_submitted"
+	EventRoundStarted       = "round_started"
+	EventFormPresented      = "form_presented"
+	EventFormCancelled      = "form_cancelled"
+	EventFormDraftSubmitted = "form_draft_submitted"
+	EventFormSubmitted      = "form_submitted"
 	EventW6Status        = "w6_status"
 	EventW6Log           = "w6_log"
 	EventAssistantDelta  = "assistant_delta"

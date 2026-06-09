@@ -15,6 +15,7 @@ type SessionStateReader interface {
 	SetUpstreamW6ID(sessionID, upstream string) error
 	UpdateMarkdown(sessionID, md, previewFile string) error
 	SetSubAgentStatus(sessionID, status string) error
+	SetFollowUps(sessionID string, followUps []string) error
 	GetReportStyle(sessionID string) string
 }
 

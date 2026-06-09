@@ -1,13 +1,14 @@
 package render
 
 import (
+	stdhtml "html"
 	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer/html"
+	gmhtml "github.com/yuin/goldmark/renderer/html"
 )
 
 var mdEngine = goldmark.New(
@@ -17,16 +18,16 @@ var mdEngine = goldmark.New(
 	),
 	goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 	goldmark.WithRendererOptions(
-		html.WithHardWraps(),
-		html.WithXHTML(),
-		html.WithUnsafe(), // preserve inline HTML (footnote ref links, W6 inline HTML)
+		gmhtml.WithHardWraps(),
+		gmhtml.WithXHTML(),
+		gmhtml.WithUnsafe(), // preserve inline HTML (footnote ref links, W6 inline HTML)
 	),
 )
 
 // MarkdownToHTML converts markdown to semantic HTML without altering text content.
 // GFM footnotes (`[^id]` / `[^id]:`) become clickable in-body refs plus an end section.
 func MarkdownToHTML(md string) (string, error) {
-	md = strings.TrimSpace(md)
+	md = normalizeMarkdownEntities(md)
 	if md == "" {
 		return "", nil
 	}
@@ -43,6 +44,7 @@ func MarkdownToHTML(md string) (string, error) {
 
 // MarkdownToHTMLSafe falls back to simple converter on goldmark failure.
 func MarkdownToHTMLSafe(md string) string {
+	md = normalizeMarkdownEntities(md)
 	bodyMD, footnotesHTML := transformFootnotes(md)
 	out, err := markdownToHTMLCore(bodyMD)
 	if err != nil || strings.TrimSpace(out) == "" {
@@ -87,8 +89,20 @@ var tagStripRe = regexp.MustCompile(`<[^>]+>`)
 
 func stripTags(s string) string {
 	s = tagStripRe.ReplaceAllString(s, "")
-	s = strings.ReplaceAll(s, "&amp;", "&")
-	s = strings.ReplaceAll(s, "&lt;", "<")
-	s = strings.ReplaceAll(s, "&gt;", ">")
-	return strings.TrimSpace(s)
+	return strings.TrimSpace(stdhtml.UnescapeString(s))
+}
+
+// normalizeMarkdownEntities reverses HTML entity encoding from upstream W6 output
+// (e.g. &quot; or &amp;quot;) so goldmark renders literal quotation marks.
+func normalizeMarkdownEntities(md string) string {
+	md = strings.TrimSpace(md)
+	if md == "" {
+		return ""
+	}
+	prev := ""
+	for md != prev {
+		prev = md
+		md = stdhtml.UnescapeString(md)
+	}
+	return md
 }

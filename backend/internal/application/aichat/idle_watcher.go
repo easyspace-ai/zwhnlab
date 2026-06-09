@@ -6,33 +6,31 @@ import (
 	"time"
 )
 
-const IdleSealDuration = 15 * time.Second
-
-// IdleWatcher seals rounds when w6_status stays non-running for 15s.
+// IdleWatcher runs the post-W6 finalize pipeline once workflow sub_agent_status
+// has been non-running for SubAgentIdleSealDelay (see WorkflowIdleForSeal).
 type IdleWatcher struct {
-	events     *EventStore
-	osintSub   func(sessionID string) (status string, ok bool)
-	onIdleSeal func(sessionID, roundID string)
-	mu         sync.Mutex
-	watches    map[string]*idleWatch
+	events      *EventStore
+	idleProbe   func(sessionID string) (idleForSeal bool, ok bool)
+	onIdleReady func(sessionID, roundID string)
+	mu          sync.Mutex
+	watches     map[string]*idleWatch
 }
 
 type idleWatch struct {
-	roundID      string
-	lastRunning  time.Time
-	cancel       context.CancelFunc
+	roundID string
+	cancel  context.CancelFunc
 }
 
 func NewIdleWatcher(
 	events *EventStore,
-	osintSub func(sessionID string) (status string, ok bool),
-	onIdleSeal func(sessionID, roundID string),
+	idleProbe func(sessionID string) (idleForSeal bool, ok bool),
+	onIdleReady func(sessionID, roundID string),
 ) *IdleWatcher {
 	return &IdleWatcher{
-		events:     events,
-		osintSub:   osintSub,
-		onIdleSeal: onIdleSeal,
-		watches:    map[string]*idleWatch{},
+		events:      events,
+		idleProbe:   idleProbe,
+		onIdleReady: onIdleReady,
+		watches:     map[string]*idleWatch{},
 	}
 }
 
@@ -44,9 +42,8 @@ func (w *IdleWatcher) Track(sessionID, roundID string) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	w.watches[sessionID] = &idleWatch{
-		roundID:     roundID,
-		lastRunning: time.Now(),
-		cancel:      cancel,
+		roundID: roundID,
+		cancel:  cancel,
 	}
 	go w.loop(ctx, sessionID, roundID)
 }
@@ -68,29 +65,23 @@ func (w *IdleWatcher) loop(ctx context.Context, sessionID, roundID string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			status, ok := w.osintSub(sessionID)
-			if !ok {
-				continue
-			}
 			w.mu.Lock()
 			watch := w.watches[sessionID]
 			if watch == nil || watch.roundID != roundID {
 				w.mu.Unlock()
 				return
 			}
-			if status == "running" {
-				watch.lastRunning = time.Now()
-				w.mu.Unlock()
+			w.mu.Unlock()
+
+			idleForSeal, ok := w.idleProbe(sessionID)
+			if !ok || !idleForSeal {
 				continue
 			}
-			idleFor := time.Since(watch.lastRunning)
-			w.mu.Unlock()
-			if idleFor >= IdleSealDuration {
-				_, _ = w.events.AppendW6Status(sessionID, roundID, W6StatusDone)
-				_, _ = w.events.AppendRoundSealed(sessionID, roundID, SealIdle15s)
-				if w.onIdleSeal != nil {
-					w.onIdleSeal(sessionID, roundID)
-				}
+			if w.onIdleReady != nil {
+				w.onIdleReady(sessionID, roundID)
+			}
+			st, _, _ := w.events.Load(sessionID)
+			if st != nil && isRoundSealed(st.Events, roundID) {
 				w.Stop(sessionID)
 				return
 			}

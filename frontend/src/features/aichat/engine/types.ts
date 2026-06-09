@@ -5,6 +5,8 @@ export type W6Status = 'running' | 'idle' | 'done' | 'error' | 'stopped'
 export type SessionEventType =
   | 'round_started'
   | 'form_presented'
+  | 'form_cancelled'
+  | 'form_draft_submitted'
   | 'form_submitted'
   | 'w6_status'
   | 'w6_log'
@@ -31,8 +33,25 @@ export interface SessionEvent {
   md_id?: string
   questions?: string[]
   reason?: string
+  draft_id?: string
   payload?: unknown
 }
+
+export type FormDraftStatus = 'pending' | 'cancelled' | 'submitted'
+
+export interface FormDraftView {
+  id: string
+  skillId: string
+  skillKey: string
+  skillName: string
+  formSchema: string
+  status: FormDraftStatus
+  submittedRoundId?: string
+}
+
+export type TimelineEntry =
+  | { entryKind: 'round'; round: RoundView }
+  | { entryKind: 'form_draft'; draft: FormDraftView }
 
 export interface W6PanelView {
   status: W6Status
@@ -64,6 +83,7 @@ export interface ReportView {
 }
 
 export interface ProjectedTimeline {
+  entries: TimelineEntry[]
   rounds: RoundView[]
   activeRoundId: string | null
   sessionTitle: string

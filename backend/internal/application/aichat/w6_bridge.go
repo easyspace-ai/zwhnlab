@@ -2,6 +2,7 @@ package aichat
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 
@@ -15,6 +16,7 @@ type W6Bridge struct {
 	onComplete func(sessionID, roundID string)
 	mu         sync.Mutex
 	active     map[string]string // sessionID -> roundID
+	watching   map[string]bool   // sessionID -> hub watch goroutine active
 }
 
 func NewW6Bridge(events *EventStore, hub *w6.Hub, onComplete func(sessionID, roundID string)) *W6Bridge {
@@ -23,6 +25,7 @@ func NewW6Bridge(events *EventStore, hub *w6.Hub, onComplete func(sessionID, rou
 		hub:        hub,
 		onComplete: onComplete,
 		active:     map[string]string{},
+		watching:   map[string]bool{},
 	}
 }
 
@@ -30,6 +33,26 @@ func (b *W6Bridge) Bind(sessionID, roundID string) {
 	b.mu.Lock()
 	b.active[sessionID] = roundID
 	b.mu.Unlock()
+}
+
+// EnsureWatch starts a hub subscription when bound but the prior Watch goroutine exited.
+func (b *W6Bridge) EnsureWatch(ctx context.Context, sessionID string) {
+	b.mu.Lock()
+	if b.watching[sessionID] || strings.TrimSpace(b.active[sessionID]) == "" {
+		b.mu.Unlock()
+		return
+	}
+	b.watching[sessionID] = true
+	b.mu.Unlock()
+
+	go func() {
+		defer func() {
+			b.mu.Lock()
+			delete(b.watching, sessionID)
+			b.mu.Unlock()
+		}()
+		b.Watch(ctx, sessionID)
+	}()
 }
 
 func (b *W6Bridge) Unbind(sessionID string) {
@@ -88,36 +111,49 @@ func (b *W6Bridge) ingest(sessionID, roundID string, ev w6.Event) {
 		return
 	}
 	_, _ = b.events.AppendW6Log(sessionID, roundID, logType, body, ev.Progress)
+	b.maybeAppendW6Idle(sessionID, roundID, ev)
+}
+
+func skillKeyForRound(events *EventStore, sessionID, roundID string) string {
+	st, _, err := events.Load(sessionID)
+	if err != nil || st == nil {
+		return ""
+	}
+	for _, ev := range st.Events {
+		if ev.RoundID != roundID || ev.Type != EventRoundStarted {
+			continue
+		}
+		if ev.Payload != nil {
+			var payload struct {
+				SkillKey string `json:"skill_key"`
+			}
+			if json.Unmarshal(ev.Payload, &payload) == nil {
+				return strings.TrimSpace(payload.SkillKey)
+			}
+		}
+	}
+	return ""
 }
 
 func (b *W6Bridge) finish(sessionID, roundID string, ev w6.Event) {
-	status := W6StatusDone
-	reason := SealTerminal
-	switch ev.Type {
-	case "error":
-		status = W6StatusError
-	case "stopped":
-		status = W6StatusStopped
-		reason = SealStopped
-	}
-	_, _ = b.events.AppendW6Status(sessionID, roundID, status)
-	// INV-2: follow_ups only after round_sealed.
-	_, _ = b.events.AppendRoundSealed(sessionID, roundID, reason)
+	st, _, _ := b.events.Load(sessionID)
+	alreadySealed := st != nil && isRoundSealed(st.Events, roundID)
 
-	title := ev.RoundTitle
-	if title == "" {
-		title = "调研报告"
+	if !alreadySealed {
+		status := W6StatusDone
+		reason := SealTerminal
+		switch ev.Type {
+		case "error":
+			status = W6StatusError
+		case "stopped":
+			status = W6StatusStopped
+			reason = SealStopped
+		}
+		_, _ = b.events.AppendW6Status(sessionID, roundID, status)
+		// INV-2: follow_ups only after round_sealed.
+		_, _ = b.events.AppendRoundSealed(sessionID, roundID, reason)
 	}
-	htmlID := strings.TrimSpace(ev.ReportURL)
-	if htmlID == sessionID {
-		htmlID = ""
-	}
-	if htmlID != "" {
-		_, _ = b.events.AppendReportReady(sessionID, roundID, title, "", htmlID)
-	}
-	if len(ev.FollowUps) > 0 {
-		_, _ = b.events.AppendFollowUps(sessionID, roundID, ev.FollowUps)
-	}
+
 	if b.onComplete != nil {
 		b.onComplete(sessionID, roundID)
 	}

@@ -1,6 +1,7 @@
 package skillgroup
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -90,5 +91,46 @@ func TestEnsureDefaultGroupsOnlyScansExistingDirs(t *testing.T) {
 	if len(groups[0].SkillIDs) < 3 {
 		t.Fatalf("expected at least 3 skills, got %v", groups[0].SkillIDs)
 	}
-	_ = time.Now()
+}
+
+func TestEnsureDefaultGroupsPreservesRenamedGroup(t *testing.T) {
+	defaults := filepath.Join("..", "..", "..", "..", "data", "skills", "defaults")
+	customDir := t.TempDir()
+
+	// Simulate a UUID-named custom group folder on disk.
+	groupID := "a7fc4656-cc98-4329-b32d-d18e037099a9"
+	groupDir := filepath.Join(customDir, groupID)
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillJSON := `{"key":"test_skill","sort_order":1}`
+	if err := os.WriteFile(filepath.Join(groupDir, "test_skill.json"), []byte(skillJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := &memRepo{groups: map[string]*SkillGroup{
+		groupID: {
+			ID:          groupID,
+			Name:        "我的自定义分组",
+			Description: strPtr("用户改过的名称"),
+			SkillIDs:    []string{"test_skill"},
+			CreatedAt:   time.Now().UTC(),
+			UpdatedAt:   time.Now().UTC(),
+		},
+	}}
+	svc := NewService(repo, defaults)
+	if err := svc.EnsureDefaultGroups(defaults, customDir); err != nil {
+		t.Fatalf("EnsureDefaultGroups: %v", err)
+	}
+
+	got, err := repo.GetByID(groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "我的自定义分组" {
+		t.Fatalf("name reverted to %q, want 我的自定义分组", got.Name)
+	}
+	if got.Description == nil || *got.Description != "用户改过的名称" {
+		t.Fatalf("description was overwritten: %v", got.Description)
+	}
 }

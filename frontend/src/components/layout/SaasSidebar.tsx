@@ -85,14 +85,14 @@ const NAV_ITEMS: NavItemConfig[] = [
     description: "事件驱动调研工作台",
     permission: NAV_PERMISSION_KEYS.aichat,
   },
-  {
-    id: "osint-dashboard",
-    to: "/osint-dashboard",
-    icon: ShieldCheck,
-    label: "情报研究",
-    description: "W6 调研与报告画布（旧版）",
-    permission: NAV_PERMISSION_KEYS.osintDashboard,
-  },
+  // {
+  //   id: "osint-dashboard",
+  //   to: "/osint-dashboard",
+  //   icon: ShieldCheck,
+  //   label: "情报研究",
+  //   description: "W6 调研与报告画布（旧版）",
+  //   permission: NAV_PERMISSION_KEYS.osintDashboard,
+  // },
   {
     id: "ppt",
     to: "/ppt",

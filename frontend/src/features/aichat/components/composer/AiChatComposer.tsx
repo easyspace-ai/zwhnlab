@@ -3,12 +3,14 @@ import { cn } from '@/osint/utils'
 
 export function AiChatComposer({
   disabled,
+  busy = false,
   isStreaming = false,
   onSend,
   onStop,
   placeholder = '输入消息；@w6 开头为深度调研',
 }: {
   disabled?: boolean
+  busy?: boolean
   isStreaming?: boolean
   onSend: (text: string) => void
   onStop?: () => void
@@ -18,7 +20,7 @@ export function AiChatComposer({
 
   const submit = () => {
     const v = text.trim()
-    if (!v || disabled || isStreaming) return
+    if (!v || disabled || busy || isStreaming) return
     onSend(v)
     setText('')
   }
@@ -58,7 +60,7 @@ export function AiChatComposer({
         ) : (
           <button
             type="button"
-            disabled={disabled || !text.trim()}
+            disabled={disabled || busy || !text.trim()}
             onClick={submit}
             className="rounded-lg bg-slate-900 px-4 text-sm text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
           >

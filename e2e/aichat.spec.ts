@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test'
 
 /**
  * AIChat smoke E2E — requires dev server + backend with test credentials.
- * Set E2E_BASE_URL (default http://localhost:6123) and E2E_TOKEN if needed.
+ * Set E2E_BASE_URL (default http://localhost:8123) and E2E_TOKEN if needed.
  */
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:6123'
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:8123'
 
 test.describe('AIChat module', () => {
   test.skip(!process.env.E2E_TOKEN, 'Set E2E_TOKEN to run authenticated aichat E2E')

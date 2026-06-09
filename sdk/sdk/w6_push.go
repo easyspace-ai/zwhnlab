@@ -28,7 +28,7 @@ func sdkDebug() bool {
 
 func sdkLog(format string, args ...any) {
 	if sdkDebug() {
-		log.Printf("[ws-sdk] "+format, args...)
+		log.Printf("[ws-sdk] 1"+format, args...)
 	}
 }
 

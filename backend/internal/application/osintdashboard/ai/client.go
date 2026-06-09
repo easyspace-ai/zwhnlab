@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -18,13 +19,14 @@ import (
 )
 
 type Client struct {
-	apiKey  string
-	baseURL string
-	model   string
-	http    *http.Client
-	editHTTP *http.Client
-	w6      *wsdk.Client
-	w6Mock  bool
+	apiKey     string
+	baseURL    string
+	model      string
+	http       *http.Client
+	streamHTTP *http.Client
+	editHTTP   *http.Client
+	w6         *wsdk.Client
+	w6Mock     bool
 }
 
 func New(deepseek config.DeepSeekConfig, w6 *wsdk.Client) *Client {
@@ -37,13 +39,14 @@ func New(deepseek config.DeepSeekConfig, w6 *wsdk.Client) *Client {
 		editTimeout = 5 * time.Minute
 	}
 	c := &Client{
-		apiKey:  strings.TrimSpace(deepseek.APIKey),
-		baseURL: strings.TrimSuffix(strings.TrimSpace(deepseek.BaseURL), "/"),
-		model:   strings.TrimSpace(deepseek.Model),
-		http:    &http.Client{Timeout: skillTimeout},
-		editHTTP: &http.Client{Timeout: editTimeout},
-		w6:      w6,
-		w6Mock:  w6 == nil,
+		apiKey:     strings.TrimSpace(deepseek.APIKey),
+		baseURL:    strings.TrimSuffix(strings.TrimSpace(deepseek.BaseURL), "/"),
+		model:      strings.TrimSpace(deepseek.Model),
+		http:       &http.Client{Timeout: skillTimeout},
+		streamHTTP: &http.Client{},
+		editHTTP:   &http.Client{Timeout: editTimeout},
+		w6:         w6,
+		w6Mock:     w6 == nil,
 	}
 	if c.baseURL == "" {
 		c.baseURL = "https://api.deepseek.com/v1"
@@ -68,6 +71,18 @@ type chatRequest struct {
 		Type string `json:"type"`
 	} `json:"response_format,omitempty"`
 	Temperature float64 `json:"temperature"`
+	Stream      bool    `json:"stream,omitempty"`
+}
+
+type streamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
 }
 
 func (c *Client) chat(ctx context.Context, body chatRequest) (string, error) {
@@ -274,7 +289,20 @@ func extractHTMLDocument(raw string) string {
 	return s
 }
 
-func (c *Client) Discuss(ctx context.Context, markdown, topic, userMessage string, history []ChatTurn) (string, error) {
+func plainChatMessages(userMessage string, history []ChatTurn) []chatMessage {
+	msgs := []chatMessage{
+		{Role: "system", Content: "你是开源情报与事实核查助手，用简洁中文回答问题，不编造来源。"},
+	}
+	for _, h := range history {
+		if h.Content != "" && (h.Role == "user" || h.Role == "assistant") {
+			msgs = append(msgs, chatMessage{Role: h.Role, Content: h.Content})
+		}
+	}
+	msgs = append(msgs, chatMessage{Role: "user", Content: userMessage})
+	return msgs
+}
+
+func discussMessages(markdown, topic, userMessage string, history []ChatTurn) []chatMessage {
 	msgs := []chatMessage{
 		{Role: "system", Content: "你是事实核查报告解读助手，基于报告作答，简洁中文，不编造来源。"},
 		{Role: "user", Content: fmt.Sprintf("【报告】\n%s\n\n【话题】%s", markdown, topic)},
@@ -285,7 +313,103 @@ func (c *Client) Discuss(ctx context.Context, markdown, topic, userMessage strin
 		}
 	}
 	msgs = append(msgs, chatMessage{Role: "user", Content: userMessage})
+	return msgs
+}
+
+func (c *Client) chatStream(ctx context.Context, body chatRequest, onChunk func(string) error) (string, error) {
+	if c.apiKey == "" {
+		return "", fmt.Errorf("LLM API key not configured")
+	}
+	body.Stream = true
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(raw))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := c.streamHTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("LLM %d: %s", resp.StatusCode, string(b))
+	}
+
+	var full strings.Builder
+	scanner := bufio.NewScanner(resp.Body)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return full.String(), err
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
+		}
+
+		var chunk streamChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		if chunk.Error != nil && chunk.Error.Message != "" {
+			return full.String(), fmt.Errorf("LLM stream error: %s", chunk.Error.Message)
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		content := chunk.Choices[0].Delta.Content
+		if content == "" {
+			continue
+		}
+		full.WriteString(content)
+		if onChunk != nil {
+			if err := onChunk(content); err != nil {
+				return full.String(), err
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return full.String(), err
+	}
+	return strings.TrimSpace(full.String()), nil
+}
+
+func (c *Client) PlainChat(ctx context.Context, userMessage string, history []ChatTurn) (string, error) {
+	msgs := plainChatMessages(userMessage, history)
+	return c.chat(ctx, chatRequest{Model: c.model, Messages: msgs, Temperature: 0.5})
+}
+
+func (c *Client) PlainChatStream(ctx context.Context, userMessage string, history []ChatTurn, onChunk func(string) error) (string, error) {
+	msgs := plainChatMessages(userMessage, history)
+	return c.chatStream(ctx, chatRequest{Model: c.model, Messages: msgs, Temperature: 0.5}, onChunk)
+}
+
+func (c *Client) Discuss(ctx context.Context, markdown, topic, userMessage string, history []ChatTurn) (string, error) {
+	msgs := discussMessages(markdown, topic, userMessage, history)
 	return c.chat(ctx, chatRequest{Model: c.model, Messages: msgs, Temperature: 0.35})
+}
+
+func (c *Client) DiscussStream(ctx context.Context, markdown, topic, userMessage string, history []ChatTurn, onChunk func(string) error) (string, error) {
+	msgs := discussMessages(markdown, topic, userMessage, history)
+	return c.chatStream(ctx, chatRequest{Model: c.model, Messages: msgs, Temperature: 0.35}, onChunk)
 }
 
 type ChatTurn struct {

@@ -1,6 +1,7 @@
 package render
 
 import (
+	"html"
 	"regexp"
 	"strings"
 )
@@ -100,11 +101,7 @@ func buildTOCNav(entries []tocEntry) string {
 }
 
 func escapeHTML(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, `"`, "&quot;")
-	return s
+	return html.EscapeString(s)
 }
 
 func pickVisualTheme(md string) string {

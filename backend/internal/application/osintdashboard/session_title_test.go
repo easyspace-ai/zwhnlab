@@ -3,7 +3,7 @@ package osintdashboard
 import "testing"
 
 func TestIsAutoSessionTitle(t *testing.T) {
-	for _, title := range []string{"", "新研究", "新对话", "调研主题", " 新研究 "} {
+	for _, title := range []string{"", "新会话", "新研究", "新对话", "调研主题", " 新研究 "} {
 		if !IsAutoSessionTitle(title) {
 			t.Fatalf("expected auto title for %q", title)
 		}

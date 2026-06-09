@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -43,8 +44,28 @@ func (m *minuteLimiter) limiterFor(ip string) *rate.Limiter {
 	return l
 }
 
+// aichatLongPollPaths are session-scoped timeline/SSE endpoints polled by design; exempt from the global /api cap.
+func aichatLongPollPath(path string) bool {
+	if !strings.HasPrefix(path, "/api/aichat/sessions/") {
+		return false
+	}
+	return strings.HasSuffix(path, "/timeline") || strings.HasSuffix(path, "/stream")
+}
+
+// artifactReadPath serves report preview/download; exempt so preview panes are not throttled by timeline traffic.
+func artifactReadPath(path string) bool {
+	if !strings.HasPrefix(path, "/api/artifacts/") {
+		return false
+	}
+	return strings.HasSuffix(path, "/preview") || strings.HasSuffix(path, "/download")
+}
+
 func (m *minuteLimiter) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if aichatLongPollPath(c.Request.URL.Path) || artifactReadPath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
 		if !m.limiterFor(c.ClientIP()).Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"detail": "rate limit exceeded"})
 			return
